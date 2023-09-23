@@ -17,7 +17,6 @@ const IndexPage: React.FC<IndexPageProps> = ({ data, children }) => {
   return (
     <Layout>
       <>
-        <h2>Home</h2>
         <ul>
           {posts.map((post) => {
             return (
