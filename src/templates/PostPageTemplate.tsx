@@ -17,8 +17,8 @@ const PostPageTemplate = ({ data, children }: PostPageProps) => {
     <Layout>
       <article>
         <header>
-          <h1>{post.frontmatter.title}</h1>
-          <p>{post.frontmatter.createdAt}</p>
+          <h1>제목: {post.frontmatter.title}</h1>
+          <p>작성일: {post.frontmatter.createdAt}</p>
         </header>
         <section itemProp="articleBody">{children}</section>
       </article>
@@ -36,6 +36,7 @@ export const query = graphql`
         title
       }
       body
+      tableOfContents
       excerpt
       internal {
         contentFilePath

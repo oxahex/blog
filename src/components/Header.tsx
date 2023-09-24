@@ -9,5 +9,7 @@ const PHeader = styled.header`
   margin: 2rem auto;
   max-width: 600px;
   height: 4rem;
+  font-size: 2rem;
+  font-weight: 900;
 `;
 export default Header;
