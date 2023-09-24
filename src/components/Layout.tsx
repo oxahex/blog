@@ -1,7 +1,7 @@
 import React from "react";
 import Header from "./Header";
 import Footer from "./Footer";
-import styled from "styled-components";
+import styled, { createGlobalStyle } from "styled-components";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -10,16 +10,15 @@ const Layout = ({ children }: LayoutProps) => {
   return (
     <>
       <Header />
-      <MainStyle>{children}</MainStyle>
+      <Main>{children}</Main>
       <Footer />
     </>
   );
 };
 
-const MainStyle = styled.main`
-  display: flex;
-  flex-direction: row;
-  font-size: 1rem;
+const Main = styled.main`
+  margin: 2rem auto;
+  max-width: 600px;
 `;
 
 export default Layout;
