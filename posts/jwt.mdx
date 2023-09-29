@@ -74,6 +74,20 @@ eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9
 헤더를 인코딩한 값 + . + 정보를 인코딩한 값 -> 해싱 -> base64 인코딩
 
 
+## Token
+HTTP 프로토콜에서 헤더에 해당.
+
+```java
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+    
+    public static final String TOKEN_HEADER = "Authorization";  // key
+
+    // 인증 타입, JWT의 경우 Bearer xxxx.yyyyy.zzzz
+    public static final String TOKEN_PREFIX = "Bearer ";         // value
+}
+
+```
+
 
 ---
 ###### 참고
