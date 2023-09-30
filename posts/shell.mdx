@@ -1,0 +1,98 @@
+---
+slug: shell-script
+title: "쉘 스크립트"
+description: "Shell Script"
+author: oxahex
+createdAt: 2023-09-30
+tags: ["note", "shell"]
+---
+
+## Shebang
+```shell
+#!/bin/sh     sh 쓸 것임...
+```
+
+## 변수
+```shell
+#!/bin/bash
+
+NAME='app'
+VER='1.0'
+
+java -jar $NAME-$VER.jar
+```
+
+## $
+```shell
+#!/bin/zsh
+
+echo $$           # shell pid
+echo $0           # shell script name
+echo $1 ~ $9      # shell parameter
+echo $#           # shell parameter count
+echo $?           # exit code 최근 실행 명령어의 종료 코드(정상 종료: 0)
+```
+
+## 예약 변수
+```shell
+#!/bin/bash
+
+echo $HOME  # home directory
+echo $PATH  # file path
+echo $USER  # user account
+```
+
+## if
+```shell
+#!/bin/bash
+
+if [ condition ]
+then
+    # do
+else
+    # do
+fi
+```
+
+```shell
+#!/bin/bash
+
+VAR="HELLO"
+
+if [ -z "$VAR" ];then
+    echo "NULL"
+else
+    echo "$VAR is not null"
+fi
+```
+
+## for
+```shell
+#!/bin/bash
+
+for VAR in LIST
+do
+  #do
+done
+```
+
+```shell
+#!/bin/sh
+
+for f in $(ls)
+do
+  echo $f
+done
+```
+
+## while
+```shell
+#!/bin/bash
+
+while [ condition ]
+do
+  # do
+done
+```
+
+```shell
