@@ -1,4 +1,5 @@
 import type { GatsbyConfig } from "gatsby";
+import * as path from "node:path";
 
 const config: GatsbyConfig = {
   siteMetadata: {
@@ -35,6 +36,13 @@ const config: GatsbyConfig = {
         path: `${__dirname}/posts`,
       },
       __key: "posts",
+    },
+    {
+      resolve: "gatsby-source-filesystem",
+      options: {
+        name: "categories",
+        path: path.resolve(__dirname, "./posts/"),
+      },
     },
     {
       resolve: "gatsby-source-filesystem",

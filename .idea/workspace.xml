@@ -4,28 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c0fb8e0a-3065-4877-b0c0-afd0144bae5a" name="변경" comment="chore: 의존성 업데이트 및 react-helmet 플러그인 추가">
-      <change afterPath="$PROJECT_DIR$/src/components/CodeBlock.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/components/PostLayout.tsx" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/style/colors.ts" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/style/global.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/blog.iml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/prettier.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" />
+    <list default="true" id="c0fb8e0a-3065-4877-b0c0-afd0144bae5a" name="변경" comment="feat: 코드 스니펫 구현">
+      <change afterPath="$PROJECT_DIR$/posts/react/dumb-down-react/dumb-down-react-1.mdx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/gatsby-config.ts" beforeDir="false" afterPath="$PROJECT_DIR$/gatsby-config.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/Root.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/Root.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/Article.tsx" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/Footer.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Footer.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/Header.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Header.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/Layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Layout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/posts/prgrms-120840.mdx" beforeDir="false" afterPath="$PROJECT_DIR$/posts/ps/solving-the-problem-without-using-biginteger.mdx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/pages/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/pages/index.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/style/theme.ts" beforeDir="false" afterPath="$PROJECT_DIR$/src/style/theme.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/templates/PostPageTemplate.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/templates/PostPageTemplate.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/yarn.lock" beforeDir="false" afterPath="$PROJECT_DIR$/yarn.lock" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -85,6 +69,8 @@
       <recent name="$PROJECT_DIR$/posts" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/posts/ps" />
+      <recent name="$PROJECT_DIR$/posts/problem-solving/prgrms-120840" />
       <recent name="$PROJECT_DIR$/src/components" />
       <recent name="$PROJECT_DIR$/src/style" />
       <recent name="$PROJECT_DIR$" />
@@ -103,7 +89,7 @@
       <workItem from="1695532322258" duration="1308000" />
       <workItem from="1695542727208" duration="338000" />
       <workItem from="1695606968374" duration="19127000" />
-      <workItem from="1709688772071" duration="15364000" />
+      <workItem from="1709688772071" duration="17405000" />
     </task>
     <task id="LOCAL-00001" summary="lib: install prettier">
       <option name="closed" value="true" />
@@ -273,7 +259,15 @@
       <option name="project" value="LOCAL" />
       <updated>1709690633044</updated>
     </task>
-    <option name="localTasksCounter" value="22" />
+    <task id="LOCAL-00022" summary="feat: 코드 스니펫 구현">
+      <option name="closed" value="true" />
+      <created>1709705398437</created>
+      <option name="number" value="00022" />
+      <option name="presentableId" value="LOCAL-00022" />
+      <option name="project" value="LOCAL" />
+      <updated>1709705398438</updated>
+    </task>
+    <option name="localTasksCounter" value="23" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -299,7 +293,8 @@
     <MESSAGE value="docs: 프로그래머스 120840 문제 기록" />
     <MESSAGE value="fix: 비교 연산자 mdx 내에 plain text로 존재하는 경우 에러" />
     <MESSAGE value="chore: 의존성 업데이트 및 react-helmet 플러그인 추가" />
-    <option name="LAST_COMMIT_MESSAGE" value="chore: 의존성 업데이트 및 react-helmet 플러그인 추가" />
+    <MESSAGE value="feat: 코드 스니펫 구현" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: 코드 스니펫 구현" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
