@@ -1,5 +1,6 @@
 const path = require("path");
 const postPageTemplate = path.resolve(`./src/templates/PostPageTemplate.tsx`);
+const tagPageTemplate = path.resolve(`./src/templates/TagPageTemplate.tsx`);
 
 exports.onCreateWebpackConfig = ({ actions, plugins }) => {
   actions.setWebpackConfig({
@@ -11,7 +12,7 @@ exports.createPages = async ({ graphql, actions: { createPage } }) => {
   console.log("???");
   const result = await graphql(`
     query {
-      allMdx {
+      posts: allMdx {
         nodes {
           frontmatter {
             title
@@ -28,24 +29,43 @@ exports.createPages = async ({ graphql, actions: { createPage } }) => {
           }
         }
       }
+
+      tags: allMdx {
+        group(field: { frontmatter: { tags: SELECT } }) {
+          tag: fieldValue
+          nodes {
+            id
+          }
+        }
+      }
     }
   `);
 
-  // allTags: allMdx {
-  //   group(field: { frontmatter: { tags: SELECT } }) {
-  //     tag: fieldValue
-  //     nodes {
-  //       id
-  //     }
-  //   }
-  // }
-
   // Tags Page
-  // 나중에...
-  // const tags = result.data.allTags.group;
+  const PAGE_SIZE = 10;
+  const tags = result.data.tags.group;
+
+  tags.forEach(({ tag, nodes }) => {
+    console.log("tagName: " + tag);
+    const pageCount = Math.ceil(nodes.length / PAGE_SIZE);
+
+    Array.from({ length: pageCount }).forEach((_, i) => {
+      createPage({
+        path: i === 0 ? `/tags/${tag}` : `/tags/${tag}/${i + 1}`,
+        component: tagPageTemplate,
+        context: {
+          limit: PAGE_SIZE,
+          skip: i * PAGE_SIZE,
+          pageCount,
+          currentPage: i + 1,
+          tag,
+        },
+      });
+    });
+  });
 
   // Generate All Posts Page
-  result.data.allMdx.nodes.forEach((node) => {
+  result.data.posts.nodes.forEach((node) => {
     const path = `/posts/${node.frontmatter.slug}`;
     console.log("node : " + node.frontmatter.title);
     console.log("path: " + node.frontmatter?.slug + ": " + path);

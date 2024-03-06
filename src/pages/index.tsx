@@ -30,7 +30,7 @@ const IndexPage: React.FC<IndexPageProps> = ({ data, children }) => {
                   </h3>
                   <small>{post.frontmatter.createdAt}</small>
                 </header>
-                <p itemProp="description">{post.description}</p>
+                <p itemProp="description">{post.frontmatter.description}</p>
               </section>
             </li>
           );
@@ -47,6 +47,7 @@ export const query = graphql`
         id
         frontmatter {
           title
+          description
           author
           createdAt(formatString: "MMMM DD, YYYY")
           tags

@@ -1,6 +1,6 @@
 import React from "react";
 import SEO from "../components/seo";
-import { graphql, HeadFC } from "gatsby";
+import { graphql, HeadFC, StaticQueryDocument } from "gatsby";
 import PostLayout from "../components/PostLayout";
 
 interface PostPageProps {
@@ -21,9 +21,11 @@ export const query = graphql`
     mdx(id: { eq: $id }) {
       id
       frontmatter {
-        createdAt(formatString: "MMMM DD, YYYY")
-        slug
         title
+        description
+        tags
+        slug
+        createdAt(formatString: "MMMM DD, YYYY")
       }
       body
       tableOfContents
@@ -38,7 +40,7 @@ export const query = graphql`
 export const Head: HeadFC<Queries.PostPageQuery> = ({ data }) => (
   <SEO
     title={data?.mdx?.frontmatter?.title || undefined}
-    description={data?.mdx?.excerpt || undefined}
+    description={data?.mdx?.frontmatter?.description || undefined}
   />
 );
 
