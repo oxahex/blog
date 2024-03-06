@@ -11,15 +11,17 @@ const config: GatsbyConfig = {
   graphqlTypegen: true,
   plugins: [
     "gatsby-plugin-image",
+    "gatsby-plugin-sharp", // Image Processing Library
+    "gatsby-transformer-sharp", // Dynamic Image
     "gatsby-plugin-sitemap",
+    "gatsby-plugin-styled-components",
+    "gatsby-plugin-react-helmet",
     {
       resolve: "gatsby-plugin-manifest",
       options: {
         icon: "src/images/icon.png",
       },
     },
-    "gatsby-plugin-sharp",
-    "gatsby-transformer-sharp",
     {
       resolve: "gatsby-source-filesystem",
       options: {
@@ -27,7 +29,6 @@ const config: GatsbyConfig = {
       },
       __key: "posts",
     },
-    "gatsby-plugin-mdx",
     {
       resolve: "gatsby-source-filesystem",
       options: {
@@ -44,7 +45,6 @@ const config: GatsbyConfig = {
       },
       __key: "pages",
     },
-    "gatsby-plugin-styled-components",
   ],
 };
 

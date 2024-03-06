@@ -25,18 +25,23 @@
     "gatsby-plugin-mdx": "^5.12.0",
     "gatsby-plugin-sharp": "^5.12.0",
     "gatsby-plugin-sitemap": "^6.12.0",
-    "gatsby-plugin-styled-components": "^6.12.0",
+    "gatsby-plugin-styled-components": "^6.13.1",
+    "gatsby-plugin-twitter": "^5.13.1",
+    "gatsby-remark-prismjs": "^7.13.1",
     "gatsby-source-filesystem": "^5.12.0",
     "gatsby-transformer-sharp": "^5.12.0",
+    "prismjs": "^1.29.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "styled-components": "^6.0.8",
+    "react-helmet": "^6.1.0",
+    "styled-components": "^6.1.8",
     "styled-reset": "^4.5.1"
   },
   "devDependencies": {
     "@types/node": "^20.3.3",
     "@types/react": "^18.2.14",
     "@types/react-dom": "^18.2.6",
+    "@types/react-helmet": "^6.1.11",
     "prettier": "^3.0.3",
     "typescript": "^5.1.6"
   }
