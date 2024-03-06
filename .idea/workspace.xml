@@ -4,10 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c0fb8e0a-3065-4877-b0c0-afd0144bae5a" name="변경" comment="feat: excerpt 대신 description 노출되도록 변경">
-      <change afterPath="$PROJECT_DIR$/src/components/Navigation.tsx" afterDir="false" />
+    <list default="true" id="c0fb8e0a-3065-4877-b0c0-afd0144bae5a" name="변경" comment="feat: tag 기반 navigation 구현">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/Layout.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Layout.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/components/Header.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/Header.tsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -87,7 +87,7 @@
       <workItem from="1695532322258" duration="1308000" />
       <workItem from="1695542727208" duration="338000" />
       <workItem from="1695606968374" duration="19127000" />
-      <workItem from="1709688772071" duration="20061000" />
+      <workItem from="1709688772071" duration="20513000" />
     </task>
     <task id="LOCAL-00001" summary="lib: install prettier">
       <option name="closed" value="true" />
@@ -297,14 +297,29 @@
       <option name="project" value="LOCAL" />
       <updated>1709712890778</updated>
     </task>
-    <option name="localTasksCounter" value="27" />
+    <task id="LOCAL-00027" summary="chore: 폴더 구조 변경">
+      <option name="closed" value="true" />
+      <created>1709713328192</created>
+      <option name="number" value="00027" />
+      <option name="presentableId" value="LOCAL-00027" />
+      <option name="project" value="LOCAL" />
+      <updated>1709713328192</updated>
+    </task>
+    <task id="LOCAL-00028" summary="feat: tag 기반 navigation 구현">
+      <option name="closed" value="true" />
+      <created>1709713349773</created>
+      <option name="number" value="00028" />
+      <option name="presentableId" value="LOCAL-00028" />
+      <option name="project" value="LOCAL" />
+      <updated>1709713349773</updated>
+    </task>
+    <option name="localTasksCounter" value="29" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="lib: install prettier" />
     <MESSAGE value="init: 포스트 리스트 빌드 타임에 생성하도록 설정" />
     <MESSAGE value="chore: package-lock 파일 제거" />
     <MESSAGE value="lib: chakra-ui set up" />
@@ -328,7 +343,9 @@
     <MESSAGE value="feat: 기존 PS 문제 풀이 포스트 타이틀 변경" />
     <MESSAGE value="feat: Dumb Down React 1 작성" />
     <MESSAGE value="feat: excerpt 대신 description 노출되도록 변경" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: excerpt 대신 description 노출되도록 변경" />
+    <MESSAGE value="chore: 폴더 구조 변경" />
+    <MESSAGE value="feat: tag 기반 navigation 구현" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: tag 기반 navigation 구현" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
