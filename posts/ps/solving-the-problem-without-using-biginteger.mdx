@@ -1,10 +1,10 @@
 ---
-slug: prgrms-120840
-title: "구슬을 나누는 경우의 수"
-description: "구슬을 나누는 경우의 수 문제 기록"
+slug: solving-the-problem-without-using-biginteger
+title: "BigInteger 없이 이 문제를 풀 수 있다면"
+description: "구슬을 나누는 경우의 수 문제를 새로운 방식으로 해결하기"
 author: oxahex
 createdAt: 2023-09-30
-tags: ["ps", "math"]
+tags: ["ps"]
 ---
 
 ## 문제 설명
@@ -12,7 +12,7 @@ tags: ["ps", "math"]
 
 ## 제한 사항
 ```text
-1. 1 <= balss <= 30
+1. 1 <= balls <= 30
 2. 1 <= share <= 30
 3. 구슬을 고르는 순서는 고려하지 않습니다.
 4. share <= balls
@@ -57,7 +57,7 @@ CASE 1의 경우 14 / 1 * 13 / 2 * 12 / 3 ...과 같이 진행되는데, 분자�
 ## 코드
 ```java
 public class PRGRMS_120840 {
-    
+
     public int solution(int balls, int share) {
         long answer = 1;
         for (int i = 1; i < share + 1; i++) {
