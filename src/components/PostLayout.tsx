@@ -2,7 +2,14 @@ import React from "react";
 import styled from "styled-components";
 import CodeBlock from "./CodeBlock";
 import { MDXProvider } from "@mdx-js/react";
-import { Box } from "@chakra-ui/react";
+import {
+  Box,
+  BoxProps,
+  Heading,
+  HeadingProps,
+  Text,
+  TextProps,
+} from "@chakra-ui/react";
 import Header from "./Header";
 import Footer from "./Footer";
 
@@ -11,6 +18,69 @@ interface ArticleProps {
 }
 
 const conponents = {
+  h1: (props: HeadingProps) => (
+    <Heading
+      as="h1"
+      fontSize="1.4rem"
+      padding={{ base: "1rem 0" }}
+      {...props}
+    />
+  ),
+  h2: (props: HeadingProps) => (
+    <Heading
+      as="h2"
+      fontSize="1.2rem"
+      padding={{ base: "0.8rem 0" }}
+      {...props}
+    />
+  ),
+  h3: (props: HeadingProps) => (
+    <Heading
+      as="h3"
+      fontSize="1rem"
+      padding={{ base: "0.5rem 0" }}
+      {...props}
+    />
+  ),
+  h4: (props: HeadingProps) => (
+    <Heading
+      as="h4"
+      fontSize="0.8rem"
+      padding={{ base: "0.5rem 0" }}
+      {...props}
+    />
+  ),
+  p: (props: TextProps) => (
+    <Text
+      as="p"
+      fontSize="0.8rem"
+      lineHeight="1.7"
+      padding={{ base: "0 0 0.4rem 0" }}
+      {...props}
+    />
+  ),
+  ol: (props: BoxProps) => (
+    <Box as="ol" fontSize="0.8rem" listStype="inside" {...props} />
+  ),
+  ul: (props: BoxProps) => (
+    <Box as="ul" fontSize="0.8rem" listStype="inside" {...props} />
+  ),
+  li: (props: BoxProps) => (
+    <Box
+      as="li"
+      fontSize="0.8rem"
+      sx={{
+        listStyleType: "none",
+        _before: {
+          content: '"•"',
+          fontSize: "0.8rem",
+          width: "1rem",
+          display: "inline-block",
+        },
+      }}
+      {...props}
+    />
+  ),
   code: CodeBlock,
 };
 
