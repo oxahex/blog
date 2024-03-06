@@ -3,6 +3,7 @@ import type { HeadFC } from "gatsby";
 import Layout from "../components/Layout";
 import SEO from "../components/seo";
 import { graphql, Link } from "gatsby";
+import { Box } from "@chakra-ui/react";
 
 interface IndexPageProps {
   data: Queries.IndexPageQuery;
@@ -17,7 +18,7 @@ const IndexPage: React.FC<IndexPageProps> = ({ data, children }) => {
   return (
     <Layout>
       <>
-        <ul>
+        <Box as="ul" listStyleType="none">
           {posts.map((post) => {
             return (
               <li id={post.id}>
@@ -38,7 +39,7 @@ const IndexPage: React.FC<IndexPageProps> = ({ data, children }) => {
               </li>
             );
           })}
-        </ul>
+        </Box>
       </>
     </Layout>
   );

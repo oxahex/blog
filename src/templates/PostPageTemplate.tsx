@@ -1,7 +1,7 @@
 import React from "react";
-import Layout from "../components/Layout";
 import SEO from "../components/seo";
 import { graphql, HeadFC } from "gatsby";
+import PostLayout from "../components/PostLayout";
 
 interface PostPageProps {
   data: Queries.PostPageQuery;
@@ -13,17 +13,7 @@ const PostPageTemplate = ({ data, children }: PostPageProps) => {
 
   if (!post?.frontmatter || !post.body) return null;
 
-  return (
-    <Layout>
-      <article>
-        <header>
-          <h1>제목: {post.frontmatter.title}</h1>
-          <p>작성일: {post.frontmatter.createdAt}</p>
-        </header>
-        <section itemProp="articleBody">{children}</section>
-      </article>
-    </Layout>
-  );
+  return <PostLayout>{children}</PostLayout>;
 };
 
 export const query = graphql`

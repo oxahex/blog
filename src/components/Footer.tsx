@@ -1,14 +1,18 @@
 import React from "react";
-import styled from "styled-components";
+import { Center } from "@chakra-ui/react";
 
 const Footer = () => {
-  return <PFooter>FOOTER</PFooter>;
+  return (
+    <Center
+      as="footer"
+      overflow="hidden"
+      width="100%"
+      height={200}
+      fontSize={12}
+    >
+      FOOTER
+    </Center>
+  );
 };
 
-const PFooter = styled.header`
-  margin: 2rem auto;
-  max-width: 600px;
-  height: 4rem;
-  font-size: 0.8rem;
-`;
 export default Footer;
