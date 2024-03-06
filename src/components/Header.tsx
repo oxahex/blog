@@ -29,12 +29,15 @@ const Header = () => {
       position="sticky"
       top="0"
       display="flex"
+      justifyContent="center"
+      alignItems="center"
+      fontSize="2rem"
+      fontWeight={600}
       paddingLeft={5}
       paddingRight={5}
       zIndex="99"
-      alignItems="center"
       width="100%"
-      height="80px"
+      height="100px"
     >
       <Link to={`/`} itemProp="url">
         <span>Archive 10</span>
