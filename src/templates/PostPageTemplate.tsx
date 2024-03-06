@@ -1,7 +1,8 @@
 import React from "react";
 import SEO from "../components/seo";
-import { graphql, HeadFC, StaticQueryDocument } from "gatsby";
+import { graphql, HeadFC, Link, StaticQueryDocument } from "gatsby";
 import PostLayout from "../components/PostLayout";
+import { Flex, Heading, Text } from "@chakra-ui/react";
 
 interface PostPageProps {
   data: Queries.PostPageQuery;
@@ -13,7 +14,43 @@ const PostPageTemplate = ({ data, children }: PostPageProps) => {
 
   if (!post?.frontmatter || !post.body) return null;
 
-  return <PostLayout>{children}</PostLayout>;
+  return (
+    <PostLayout>
+      <Flex
+        width="100%"
+        flexDirection="column"
+        alignItems="center"
+        marginBottom="3rem"
+      >
+        <Heading as="h1" fontSize="1.2rem" fontWeight={900}>
+          {post?.frontmatter.title}
+        </Heading>
+        <Flex direction="column" alignItems="center">
+          <Text fontSize="0.8rem">{post?.frontmatter.createdAt}</Text>
+          <Flex
+            direction="row"
+            justifyContent="flex-start"
+            alignItems="flex-start"
+            columnGap="0.5rem"
+            rowGap="0.2rem"
+          >
+            {post?.frontmatter.tags?.map((tag) => (
+              <Link key={tag} to={`/tags/${tag}`}>
+                <Text
+                  fontSize="0.8rem"
+                  fontWeight={600}
+                  _hover={{ textDecoration: "underline" }}
+                >
+                  {tag}
+                </Text>
+              </Link>
+            ))}
+          </Flex>
+        </Flex>
+      </Flex>
+      {children}
+    </PostLayout>
+  );
 };
 
 export const query = graphql`
