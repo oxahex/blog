@@ -15,6 +15,7 @@ exports.createPages = async ({ graphql, actions: { createPage } }) => {
         nodes {
           frontmatter {
             title
+            description
             author
             createdAt
             tags

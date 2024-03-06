@@ -17,30 +17,25 @@ const IndexPage: React.FC<IndexPageProps> = ({ data, children }) => {
 
   return (
     <Layout>
-      <>
-        <Box as="ul" listStyleType="none">
-          {posts.map((post) => {
-            return (
-              <li id={post.id}>
-                <section>
-                  <header>
-                    <h3>
-                      <Link
-                        to={`/posts/${post.frontmatter.slug}`}
-                        itemProp="url"
-                      >
-                        <span>{post.frontmatter.title}</span>
-                      </Link>
-                    </h3>
-                    <small>{post.frontmatter.createdAt}</small>
-                  </header>
-                  <p itemProp="description">{post.excerpt}</p>
-                </section>
-              </li>
-            );
-          })}
-        </Box>
-      </>
+      <Box as="ul" listStyleType="none" width="100%">
+        {posts.map((post) => {
+          return (
+            <li id={post.id}>
+              <section>
+                <header>
+                  <h3>
+                    <Link to={`/posts/${post.frontmatter.slug}`} itemProp="url">
+                      <span>{post.frontmatter.title}</span>
+                    </Link>
+                  </h3>
+                  <small>{post.frontmatter.createdAt}</small>
+                </header>
+                <p itemProp="description">{post.description}</p>
+              </section>
+            </li>
+          );
+        })}
+      </Box>
     </Layout>
   );
 };
