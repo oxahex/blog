@@ -1,16 +1,22 @@
 import React from "react";
-import { Center } from "@chakra-ui/react";
+import { Center, Text } from "@chakra-ui/react";
 
 const Footer = () => {
   return (
     <Center
       as="footer"
       overflow="hidden"
+      display="flex"
+      flexDirection="column"
+      alignItems="center"
+      justifyContent="center"
       width="100%"
       height={200}
       fontSize={12}
+      fontWeight={600}
     >
-      FOOTER
+      <Text as="p">Everything Begins With Your Stance.</Text>
+      <Text as="p">Remember.</Text>
     </Center>
   );
 };
