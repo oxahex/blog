@@ -15,7 +15,7 @@ const Footer = () => {
       fontSize={12}
       fontWeight={600}
     >
-      <Text as="p">Everything Begins With Your Stance.</Text>
+      <Text as="p">Everything Begins with Your Stance.</Text>
       <Text as="p">Remember.</Text>
     </Center>
   );
