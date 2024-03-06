@@ -5,7 +5,7 @@ import Layout from "../components/Layout";
 import Navigation from "../components/Navigation";
 
 interface TagPageProps {
-  data: Queries.TagPageQuery;
+  data: Queries.PostByTagQueryQuery;
   pageContext: {
     limit: number;
     skip: number;
@@ -51,7 +51,7 @@ export const query = graphql`
 `;
 
 export const Head: HeadFC<
-  Queries.TagPageQuery,
+  Queries.PostByTagQueryQuery,
   TagPageProps["pageContext"]
 > = ({ data, pageContext }) => {
   const title = "Archive 10";
