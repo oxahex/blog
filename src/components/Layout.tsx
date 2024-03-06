@@ -12,7 +12,6 @@ const Layout = ({ children }: LayoutProps) => {
   return (
     <>
       <Header />
-      <Navigation currentTag={"all-post"} />
       <Box
         display="flex"
         flexDirection="column"

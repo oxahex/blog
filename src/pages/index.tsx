@@ -4,6 +4,8 @@ import Layout from "../components/Layout";
 import SEO from "../components/seo";
 import { graphql, Link } from "gatsby";
 import { Box } from "@chakra-ui/react";
+import Navigation from "../components/Navigation";
+import PostCard from "../components/PostCard";
 
 interface IndexPageProps {
   data: Queries.IndexPageQuery;
@@ -17,23 +19,23 @@ const IndexPage: React.FC<IndexPageProps> = ({ data, children }) => {
 
   return (
     <Layout>
-      <Box as="ul" listStyleType="none" width="100%">
+      <Navigation currentTag={undefined} />
+      <Box
+        as="ul"
+        listStyleType="none"
+        width="100%"
+        margin={{ base: "1.5rem auto" }}
+      >
         {posts.map((post) => {
-          return (
-            <li id={post.id}>
-              <section>
-                <header>
-                  <h3>
-                    <Link to={`/posts/${post.frontmatter.slug}`} itemProp="url">
-                      <span>{post.frontmatter.title}</span>
-                    </Link>
-                  </h3>
-                  <small>{post.frontmatter.createdAt}</small>
-                </header>
-                <p itemProp="description">{post.frontmatter.description}</p>
-              </section>
-            </li>
-          );
+          const postData = {
+            id: post.id!,
+            title: post.frontmatter?.title!,
+            description: post.frontmatter?.description!,
+            slug: post.frontmatter?.slug!,
+            createdAt: post.frontmatter?.createdAt!,
+            tags: post.frontmatter?.tags!,
+          };
+          return <PostCard {...postData} />;
         })}
       </Box>
     </Layout>

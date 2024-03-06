@@ -1,8 +1,10 @@
 import React from "react";
-import { graphql, HeadFC, StaticQueryDocument } from "gatsby";
+import { graphql, HeadFC, Link, StaticQueryDocument } from "gatsby";
 import SEO from "../components/seo";
 import Layout from "../components/Layout";
 import Navigation from "../components/Navigation";
+import { Box } from "@chakra-ui/react";
+import PostCard from "../components/PostCard";
 
 interface TagPageProps {
   data: Queries.PostByTagQueryQuery;
@@ -16,10 +18,29 @@ interface TagPageProps {
 }
 
 const TagPageTemplate = ({ data, pageContext }: TagPageProps) => {
+  const posts = data.allMdx.nodes;
+
   return (
     <Layout>
       <Navigation currentTag={pageContext.tag} />
-      <div>{pageContext.tag}</div>
+      <Box
+        as="ul"
+        listStyleType="none"
+        width="100%"
+        margin={{ base: "1.5rem auto" }}
+      >
+        {posts.map((post) => {
+          const postData = {
+            id: post.id!,
+            title: post.frontmatter?.title!,
+            description: post.frontmatter?.description!,
+            slug: post.frontmatter?.slug!,
+            createdAt: post.frontmatter?.createdAt!,
+            tags: post.frontmatter?.tags!,
+          };
+          return <PostCard {...postData} />;
+        })}
+      </Box>
     </Layout>
   );
 };
@@ -34,6 +55,7 @@ export const query = graphql`
     ) {
       totalCount
       nodes {
+        id
         frontmatter {
           title
           description
