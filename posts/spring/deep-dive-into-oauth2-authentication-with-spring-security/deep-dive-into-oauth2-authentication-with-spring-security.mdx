@@ -1,0 +1,500 @@
+---
+slug: deep-dive-into-oauth2-authentication-with-spring-security
+title: "Spring Security OAuth 2.0 인증 과정 자세히 살펴보기"
+description: "OAuth 2.0 인증 과정이 어떤 식으로 동작하는지 코드를 따라가며 확인"
+author: oxahex
+createdAt: 2024-03-07
+tags: ["spring"]
+---
+
+# Spring Security OAuth 2.0 내부 구현
+Java 진영의 프레임워크나 라이브러리는 많은 것이 추상화 되어 있다.
+추상화가 잘 되어 있으면 코드를 블록 조립하듯 작성할 수 있다. 이 구현체는 이런 역할을 담당하고, 이 메서드는 이런 input을 넣으면 이런 output을 뱉는다... 정도만 알고 있어도 특정한 동작을 하도록 만드는 것은 어렵지 않다.
+
+하지만 그걸 배우는 입장에서는 잘 된 추상화는 이해를 방해한다. 전체적으로 어떻게 구현이 되어있는지 파악하기 어렵다. 개인 프로젝트로 작은 웹 서비스 서버를 구현해보면서 JWT 기반 인가 처리와 OAuth 인증을 구현하고 싶었는데, 내가 접근했던 모든 정보는 이걸 구현해서 Bean으로 등록하면 됩니다, 정도에서 그쳤다.
+
+OAuth 2.0 기반 인증 처리를 구현할 때, 최초에 이해한 것은 다음이 전부였다.
+
+1. 구글에 OAuth 클라이언트 사전 등록을 하고, client_id와 client_secret을 저장한다.
+2. application.yml에 설정값을 작성한다.
+3. SecurityConfig 설정 클래스를 작성하고 oauth2Login configuration을 작성한다.
+4. OAuth2UserService를 구현하거나 DefaultOAuth2UserService를 상속해 OAuth를 처리하는 서비스 클래스를 만든다.
+5. loadUser에 OAuth 인증이 완료되면 해야하는 동작을 코드로 작성한다.
+6. loadUser 메서드가 OAuth2User를 반환하면 Security Context에 등록된다.
+7. AuthenticationSuccessHandler를 구현해 Security Context에 OAuth2User를 등록한 이후 작업을 정의한다.
+8. AuthenticationFailureHandler를 구현해 OAuth 과정에서 문제가 생겼을 때 동작을 정의한다.
+
+사실 여기까지 구현해서 OAuth를 통해 인증을 한 다음 사용자 정보를 받아 회원 등록을 하고, JWT Token을 발급하는 목적은 달성했다. 다만 이 과정에서 궁금한 점이 생겼다.
+
+## 의문점
+내가 이해하고 있는 OAuth 인증 절차를 그림으로 표현하면 이렇다.
+~[웹 서버 애플리케이션용 OAuth 2.0 사용](https://developers.google.com/identity/protocols/oauth2/web-server?hl=ko#httprest_1)~
+![OAuth2 인증 절차를 그림으로 그려봤음]("./img/01.png")
+
+초반 Authorization Code를 발급받는 주체는 구현에 따라 다를 수 있지만 OAuth 인증을 받기 위해서는 여러 번의 요청과 응답이 이루어져야 한다.
+
+구글 OAuth 2.0의 경우,
+1. 사용자 로그인 요청
+2. Google OAuth 2.0 엔드포인트(~[https://accounts.google.com/o/oauth2/v2/auth](https://accounts.google.com/o/oauth2/v2/auth)~)로 리디렉션
+3. 사용자 동의 요청 메세지 화면(Google 제공)이 보여지고 사용자 로그인
+4. 사용자 로그인 성공 시 2에서 쿼리 파라미터로 넘긴 redirect_uri로 리디렉션(Authorization Code 발급)
+5. Authorization Code를 가지고 Access Token으로 교환 요청
+6. Access Token으로 Google Resource 서버에 사용자 정보(자원) 요청
+
+이후에 정상적으로 조회한 사용자 정보를 기반으로 회원 가입 처리를 하거나 JWT 토큰을 발급하게 된다.
+
+그러나 내가 구현한 것은 2번 뿐이다. 표면적으로는 3, 4, 5, 6번 과정이 스킵되고 스코프로 지정했던 profile과 email 정보를 바로 받을 수 있었다. 3, 4, 5, 6번 과정은 어디에서 어떻게 동작하는 것일까?
+
+## 프로퍼티 객체 생성 및 스프링 빈 등록
+OAuth2 인증을 위해서는 client_id, client_secret, redirect_uri 등을 설정해야 한다. 이 정보들은 OAuth2 제공자 쪽에 저장되기 때문에 내 서비스는 따로 지정해주지 않으면 이 정보를 알 수 없다. application.yml에 OAuth 관련 프로퍼티를 작성했다.
+
+```yml
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${OAUTH_GOOGLE_CLIENT_ID}
+            client-secret: ${OAUTH_GOOGLE_CLIENT_SECRET}
+            scope:
+              - profile
+              - email
+            redirect-uri: http://localhost:8081/login/oauth2/code/google
+```
+
+이 정보를 관리하는 것이 ClientRegistrationRepository 클래스다. 대표적인 구현체는 InMemoryClientRegistrationRepository가 있다. 구현체를 Spring Bean으로 등록할 때, OAuth2 제공자 쪽에 등록한 정보를 파라미터로 받는다. argsToUse를 보면 OAuth2ClientProperties 객체를 받는 것을 볼 수 있다.
+![]("./img/02.png)
+
+InMemoryClientRegistrationRepository를 Spring Bean으로 등록할 때, `List<ClientRegistration>`으로 ClientRegistration을 저장하는 것을 확인할 수 있다.
+
+```java
+@Configuration(
+  proxyBeanMethods = false
+)
+@EnableConfigurationProperties({OAuth2ClientProperties.class})
+@Conditional({ClientsConfiguredCondition.class})
+class OAuth2ClientRegistrationRepositoryConfiguration {
+  OAuth2ClientRegistrationRepositoryConfiguration() {
+  }
+
+  @Bean
+  @ConditionalOnMissingBean({ClientRegistrationRepository.class})
+  InMemoryClientRegistrationRepository clientRegistrationRepository(
+    OAuth2ClientProperties properties
+  ) {
+    List<ClientRegistration> registrations = new ArrayList((new OAuth2ClientPropertiesMapper(properties)).asClientRegistrations().values());
+    return new InMemoryClientRegistrationRepository(registrations);
+  }
+}
+```
+
+이 클래스는 RegistrationRepository에 잘 알려진 OAuth2 Provider에 대한 각각의 ClientRegistration을 저장한다. OAuth2ClientPropertiesMapper 클래스 내부의 asClientRegistrations() 메서드는 다음과 같다.
+
+```java
+public Map<String, ClientRegistration> asClientRegistrations() {
+    Map<String, ClientRegistration> clientRegistrations = new HashMap();
+    this.properties.getRegistration().forEach((key, value) -> {
+      clientRegistrations.put(key, getClientRegistration(key, value, this.properties.getProvider()));
+    });
+    return clientRegistrations;
+  }
+```
+
+각각의 OAuth2ClientProperties 객체를 순회하면서 내부의 registration 정보를 가져와 clientRegistrations Map 자료구조에 할당할 때 key는 registrationId를 의미한다. google, kakao, github와 같은 OAuth Provider 이름이다.
+
+```java
+private static ClientRegistration getClientRegistration(
+  String registrationId,
+  OAuth2ClientProperties.Registration properties,
+  Map<String, OAuth2ClientProperties.Provider> providers
+) {
+    ClientRegistration.Builder builder = getBuilderFromIssuerIfPossible(registrationId, properties.getProvider(), providers);
+    if (builder == null) {
+      builder = getBuilder(registrationId, properties.getProvider(), providers);
+    }
+
+    ...
+}
+```
+
+이 때 넘겨 받은 파라미터로 가져올 수 있는 builder가 없으면 getBuilder() 메서드를 호출하는데, getBuilder() 메서드 내부에서 configuredProviderId가 없으면 CommonOAuth2Provider를 참조한다.
+
+```java
+String providerId = configuredProviderId != null ? configuredProviderId : registrationId;
+CommonOAuth2Provider provider = getCommonProvider(providerId);
+```
+
+CommonOAuth2Provider은 Google, Github, Facebook, Okta의 클라이언트 정보를 정의해둔 Enum 클래스다. application.yml 파일에 provider를 따로 지정하지 않더라도 위 4개의 OAuth Provider 사는 기본값이 저장되어 있으므로 정상 동작한다. 따로 provider를 명시하지 않아도 동작했던 이유가 이거였다.
+
+```java
+GITHUB {
+    public ClientRegistration.Builder getBuilder(String registrationId) {
+      ClientRegistration.Builder builder = this.getBuilder(registrationId, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, "{baseUrl}/{action}/oauth2/code/{registrationId}");
+      builder.scope(new String[]{"read:user"});
+      builder.authorizationUri("https://github.com/login/oauth/authorize");
+      builder.tokenUri("https://github.com/login/oauth/access_token");
+      builder.userInfoUri("https://api.github.com/user");
+      builder.userNameAttributeName("id");
+      builder.clientName("GitHub");
+      return builder;
+    }
+  }
+```
+
+redirect-uri 역시 yml 파일에 적어두지 않아도 /login/oauth2/code/google, /login/oauth2/code/github 등으로 각 Provider에 Redirect URI를 적용해두면 동작했는데, 그 이유도 CommonOAuth2Provider를 확인해보니 알 수 있었다.
+
+yml 파일에 OAuth Provider 정보를 적어두기만 했는데 동작한 것은 이러한 작업이 애플리케이션 구동 시에 Spring Bean을 등록할 때 사전 작업처럼 전부 이루어지기 때문이다.
+
+## 로그인 요청 처리 과정
+Spring Security Filter는 Dispatcher Servlet에 요청이 들어가기 전에 동작한다.
+스프링 서버가 동작할 때 HTTP 요청이 들어오면 Filter를 가장 먼저 거치고, Dispatcher Servlet을 거친다. 그 다음이 Interceptor이고, 마지막으로 Controller에 요청이 도달한다.
+
+Spring Security와 OAuth2 Client 의존성으로 추가하고, Configuration 클래스에서 OAuth2 로그인을 하도록 설정하면 다음 필터가 Spring Security Filter Chain에 추가된다.
+
+- OAuth2AuthorizationRequestRedirectFilter
+- OAuth2LoginAuthenticationFilter
+
+### OAuth2AuthorizationRequestRedirectFilter
+OAuth2AuthorizationRequestRedirectFilter에서 /oauth2/authorization/{registrationId}로 오는 요청을 처리한다.
+
+```java
+protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+  try {
+    OAuth2AuthorizationRequest authorizationRequest = this.authorizationRequestResolver.resolve(request);
+    if (authorizationRequest != null) {
+      this.sendRedirectForAuthorization(request, response, authorizationRequest);
+      return;
+    }
+  } catch (Exception var11) {
+    this.unsuccessfulRedirectForAuthorization(request, response, var11);
+    return;
+  }
+
+// ...
+}
+```
+
+내부적으로 OAuth2AuthorizationRequestResolver 클래스의 `resolve()` 메서드를 호출하는데, 이 메서드에서는 요청한 URL과 파라미터를 기준으로 특정 조건과 일치하면 OAuth2AuthorizationRequest 객체를 생성, 반환한다.
+
+만약 프론트에서 /api/auth/oauth?provider=google 이 주소로 요청을 보내고, 백엔드 서버에서 /oauth2/authorization/google로 redirect 처리를 한다면, 프론트 쪽에서 보낸 요청이 컨트롤러에 진입하기 전에 위의 `resolve()` 메서드를 타지만 null을 반환한다. 백엔드 서버에서 redirect를 했을 때 authorazationRequest에 값이 들어오는 것을 볼 수 있다.
+![]("./img/03.png")
+![]("./img/04.png")
+
+이렇게 authorizationRequest가 생성되면 `authorizationRequest != null` 조건을 만족하므로 아래의 메서드가 실행된다.
+
+```java
+if (authorizationRequest != null) {
+  this.sendRedirectForAuthorization(request, response, authorizationRequest);
+  return;
+}
+```
+
+```java
+private void sendRedirectForAuthorization(HttpServletRequest request, HttpServletResponse response, OAuth2AuthorizationRequest authorizationRequest) throws IOException {
+  if (AuthorizationGrantType.AUTHORIZATION_CODE.equals(authorizationRequest.getGrantType())) {
+    this.authorizationRequestRepository.saveAuthorizationRequest(authorizationRequest, request, response);
+  }
+
+  this.authorizationRedirectStrategy.sendRedirect(request, response, authorizationRequest.getAuthorizationRequestUri());
+}
+
+```
+
+결과적으로 AuthorizationRequestRepository의 `saveAuthorizationRequest()` 메서드를 통해 OAuth2AUthorizationRequest 객체를 저장하고, `getAuthorizationRequestUri()` 메서드를 통해 가져온 각 OAuth2 Provider의 로그인 페이지로 이동한다.
+
+AuthorizationRequest 객체를 반환하는 OAuth2AuthorizationRequestResolver 클래스의 `resolve()` 메서드는 어떤 식으로 동작할까?
+
+기본적으로 사용되는 OAuth2AuthorizationRequestResolver의 구현체는 DefaultOAuth2AuthorizationRequestResolver 클래스다. 구현체의 `resolve()` 메서드는 3개의 메서드가 같은 이름으로 오버로딩 되어 있었다. 먼저 2개는 아래와 같았다.
+
+```java
+public OAuth2AuthorizationRequest resolve(HttpServletRequest request) {
+  String registrationId = this.resolveRegistrationId(request);
+  if (registrationId == null) {
+    return null;
+  } else {
+    String redirectUriAction = this.getAction(request, "login");
+    return this.resolve(request, registrationId, redirectUriAction);
+  }
+}
+
+public OAuth2AuthorizationRequest resolve(HttpServletRequest request, String registrationId) {
+  if (registrationId == null) {
+    return null;
+  } else {
+    String redirectUriAction = this.getAction(request, "authorize");
+    return this.resolve(request, registrationId, redirectUriAction);
+  }
+}
+```
+
+HttpServletRequest를 파라미터로 넘긴 경우에는 첫 번째 메서드가 동작한다. `resolveRegistrationId()` 메서드로 registrationId를 가져온다. 내부적으로 AntPathRequestMatcher를 통해 패턴과 일치하는지 확인한다.
+![]("./img/05.png")
+
+따라서 regostrationId를 얻어올 수 있는 경우 요청 파라미터에 action 파라미터가 있는지 확인한다. 있다면 추출하고, 없다면 login을 기본값으로 넘겨 redirect 할 URI를 얻는다. 그 다음 아래의 또 다른 `resolve()` 메서드를 호출하고, 얻어올 수 없는 경우에는 null을 반환하는 것이다.
+
+```java
+private OAuth2AuthorizationRequest resolve(HttpServletRequest request, String registrationId, String redirectUriAction) {
+  if (registrationId == null) {
+    return null;
+  } else {
+    ClientRegistration clientRegistration = this.clientRegistrationRepository.findByRegistrationId(registrationId);
+    if (clientRegistration == null) {
+      throw new InvalidClientRegistrationIdException("Invalid Client Registration with Id: " + registrationId);
+    } else {
+      OAuth2AuthorizationRequest.Builder builder = this.getBuilder(clientRegistration);
+      String redirectUriStr = expandRedirectUri(request, clientRegistration, redirectUriAction);
+      builder.clientId(clientRegistration.getClientId()).authorizationUri(clientRegistration.getProviderDetails().getAuthorizationUri()).redirectUri(redirectUriStr).scopes(clientRegistration.getScopes()).state(DEFAULT_STATE_GENERATOR.generateKey());
+      this.authorizationRequestCustomizer.accept(builder);
+      return builder.build();
+    }
+  }
+}
+```
+
+AuthorizationRequest는 이 메서드에서 만들어진다.
+
+```java
+builder
+	.clientId(clientRegistration.getClientId())
+	.authorizationUri(clientRegistration.getProviderDetails().getAuthorizationUri())
+	.redirectUri(redirectUriStr)
+	.scopes(clientRegistration.getScopes())
+	.state(DEFAULT_STATE_GENERATOR.generateKey());
+```
+
+위와 같은 정보가 OAuth2AuthorizationRequest에 담겨 생성되고, 반환된다. 이후 이 객체를 가지고 OAuth2 Provider의 로그인 페이지로 redirect 하게 된다.
+
+
+### OAuth2LoginAuthenticationFilter
+사용자가 로그인 페이지에서 로그인을 완료했을 때 OAuth Provider의 인증 서버에서 Authorization Code를 발급 받게 된다. 이 코드는 백엔드 서버로 리다이렉트 된다. 이 때의 요청을 처리하는 것이 OAuth2LoginAuthenticationFilter다. 정확히는 상위 클래스인 AbstractAuthenticationProcessingFilter의 `doFilter()` 메서드에서 이를 처리한다.
+
+OAuth2LoginAuthenticationFilter에는 `doFilter()` 메서드가 구현되어 있지 않았다. 따라서 상위 클래스인 AbstractAuthenticationProcessingFilter의 `doFilter()` 메서드가 동작하게 된다.
+
+```java
+private void doFilter(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws IOException, ServletException {
+  if (!this.requiresAuthentication(request, response)) {
+    chain.doFilter(request, response);
+  } else {
+    try {
+      Authentication authenticationResult = this.attemptAuthentication(request, response);
+      if (authenticationResult == null) {
+        return;
+      }
+
+      this.sessionStrategy.onAuthentication(authenticationResult, request, response);
+      if (this.continueChainBeforeSuccessfulAuthentication) {
+        chain.doFilter(request, response);
+      }
+
+      this.successfulAuthentication(request, response, chain, authenticationResult);
+    } catch (InternalAuthenticationServiceException var5) {
+      this.logger.error("An internal error occurred while trying to authenticate the user.", var5);
+      this.unsuccessfulAuthentication(request, response, var5);
+    } catch (AuthenticationException var6) {
+      this.unsuccessfulAuthentication(request, response, var6);
+    }
+
+  }
+}
+```
+
+내부적으로 요청 URL이 /login/oauth2/code/* 패턴과 일치하는지 확인한다.
+
+```java
+protected boolean requiresAuthentication(HttpServletRequest request, HttpServletResponse response) {
+  if (this.requiresAuthenticationRequestMatcher.matches(request)) {
+    return true;
+  } else {
+    if (this.logger.isTraceEnabled()) {
+      this.logger.trace(LogMessage.format("Did not match request to %s", this.requiresAuthenticationRequestMatcher));
+    }
+
+    return false;
+  }
+}
+```
+
+패턴이 일치하면 하단의 try 구문으로 넘어오고, 여기에서 `attemptAuthentication()` 메서드가 실행된다. 재미있는 것은 AbstractAuthenticationProcessingFilter의 이 메서드는 추상 메서드이고, 실제 구현은 OAuth2LoginAuthenticationFilter 클래스에 있다. 템플릿 메서드 패턴이다. `doFilter()` 메서드는 AbstractAuthenticationProcessingFilter를 확장한 하위 클래스에서 공통적으로 사용되기 때문에 상위 클래스에 존재하고, `attemptAuthentication()` 메서드는 조금 더 지엽적으로 사용되기 때문에 하위 클래스에서 구현한 것이다.
+
+OAuth2 인증 및 인가 처리 과정에서 남아있는 부분은 다음과 같다.
+- OAuth2 Provider의 인증 서버에서 인가 코드로 Access Token을 요청
+- 발급 받은 Access Token으로 사용자 정보 요청
+- 사용자 정보로 인증 객체를 생성해 Security Context에 저장
+
+OAuth2LoginAuthenticationFilter클래스의 `attemptAuthentication()` 메서드 내부에서 `this.getAuthenticationManager()` 메서드가 호출되면, ProviderManager가 반환된다.
+
+```java
+OAuth2LoginAuthenticationToken authenticationResult = (OAuth2LoginAuthenticationToken)this.getAuthenticationManager().authenticate(authenticationRequest);
+```
+
+ProviderManager는 AuthenticationProvider 인터페이스의 구현체를 리스트로 가지고 있다.
+![]("./img/06.png")
+이 리스트를 순회하면서 `authenticate()` 메서드를 실행한다. 내부적으로 이런 형태다.
+
+```java
+while(var9.hasNext()) {	// 리스트 순회
+  AuthenticationProvider provider = (AuthenticationProvider)var9.next();
+  if (provider.supports(toTest)) {	// 구현체가 메서드를 지원하는지(맞는 구현체인지 확인)
+    if (logger.isTraceEnabled()) {
+      Log var10000 = logger;
+      String var10002 = provider.getClass().getSimpleName();
+      ++currentPosition;
+      var10000.trace(LogMessage.format("Authenticating request with %s (%d/%d)", var10002, currentPosition, size));
+    }
+
+    try {
+      result = provider.authenticate(authentication);	// 맞으면 실행
+      if (result != null) {
+        this.copyDetails(authentication, result);
+        break;
+      }
+    } catch (InternalAuthenticationServiceException | AccountStatusException var14) {
+      this.prepareException(var14, authentication);
+      throw var14;
+    } catch (AuthenticationException var15) {
+      lastException = var15;
+    }
+  }
+}
+```
+
+실제로 순회 중인 구현체가 OAuth2LoginAuthenticationProvider였을 때 if문 내부로 들어오는 것을 확인할 수 있었다.
+![]("./img/07.png")
+
+결과적으로 실행되는 `provider.authenticate()` 메서드는 OAuth2LoginAuthenticationProvider의 메서드가 된다.
+
+OAuth2LoginAuthenticationProvider의 `authenticate()` 메서드에서 처리하는 일은 다음과 같았다.
+- 인가 코드로 Access Token을 요청하고 받아오기
+- Access Token으로 사용자 정보 받아오기
+
+생성자 코드에서 authorizationCodeAuthenticationProvider와 userService를 할당하는 것을 확인할 수 있었다.
+
+```java
+public OAuth2LoginAuthenticationProvider(OAuth2AccessTokenResponseClient<OAuth2AuthorizationCodeGrantRequest> accessTokenResponseClient, OAuth2UserService<OAuth2UserRequest, OAuth2User> userService) {
+  Assert.notNull(userService, "userService cannot be null");
+  this.authorizationCodeAuthenticationProvider = new OAuth2AuthorizationCodeAuthenticationProvider(accessTokenResponseClient);
+  this.userService = userService;
+}
+```
+
+- authorizationCodeAuthenticationProvider: 인가 코드로 Access Token 요청
+- userService: Access Token으로 사용자 정보 요청
+
+#### 인가 코드로 Access Token 요청
+try문 내부에서 `this.authorizationCodeAuthenticationProvider.authenticate()` 메서드를 호출하는 것을 확인할 수 있었다. 생성자에 명시된 OAuth2AuthorizationCodeAuthenticationProvider의 `authenticate()` 메서드는 이 동작을 OAuth2AccessTokenResponseClient에 위임한다. OAuth2AccessTokenResponseClient는 인터페이스고 실제로 동작하는 구현체는 DefaultAuthorizationCodeTokenResponseClient 클래스임을 확인할 수 있었다.
+
+```java
+public OAuth2AccessTokenResponse getTokenResponse(OAuth2AuthorizationCodeGrantRequest authorizationCodeGrantRequest) {
+  Assert.notNull(authorizationCodeGrantRequest, "authorizationCodeGrantRequest cannot be null");
+  RequestEntity<?> request = (RequestEntity)this.requestEntityConverter.convert(authorizationCodeGrantRequest);
+  ResponseEntity<OAuth2AccessTokenResponse> response = this.getResponse(request);
+  OAuth2AccessTokenResponse tokenResponse = (OAuth2AccessTokenResponse)response.getBody();
+  Assert.notNull(tokenResponse, "The authorization server responded to this Authorization Code grant request with an empty body; as such, it cannot be materialized into an OAuth2AccessTokenResponse instance. Please check the HTTP response code in your server logs for more details.");
+  return tokenResponse;
+}
+```
+
+HTTP 통신을 해야 하기 때문에 RestTemplate을 사용하고 있었다.
+![]("./img/08.png")
+인가 토큰으로 Access Token을 요청하는 OAuth2 Provider 서버의 엔드포인트를 확인할 수 있다. body에 access Token이 들어와 있는 것도 확인할 수 있었다. 생성된 OAuth2AccessTokenResponse는 OAuth2AuthorizationCodeAuthenticationProvider 클래스를 거치면서 OAuth2AuthorizationCodeAuthenticationToken 객체로 감싸서 반환된다.
+
+#### Access Token으로 유저 정보 요청
+OAuth2LoginAuthenticationProvider로 돌아오면,
+
+```java
+try {
+  authorizationCodeAuthenticationToken = (OAuth2AuthorizationCodeAuthenticationToken)this.authorizationCodeAuthenticationProvider.authenticate(new OAuth2AuthorizationCodeAuthenticationToken(loginAuthenticationToken.getClientRegistration(), loginAuthenticationToken.getAuthorizationExchange()));
+}
+```
+
+try문에서 인가 코드로 Access Token으로 발급받는 과정이 수행되고 나면 authorizationCodeAuthenticationToken에 값이 들어온다.
+
+```java
+OAuth2AccessToken accessToken = authorizationCodeAuthenticationToken.getAccessToken();
+Map<String, Object> additionalParameters = authorizationCodeAuthenticationToken.getAdditionalParameters();
+OAuth2User oauth2User = this.userService.loadUser(new OAuth2UserRequest(loginAuthenticationToken.getClientRegistration(), accessToken, additionalParameters));
+```
+
+이후에 userService의 `loadUser()` 메서드가 호출된다. 여기서 호출되는 userService는 DefaultOAuth2UserService를 확장해 만든 커스텀 클래스다.
+
+```java
+@Override
+public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
+	super.loadUser(userRequest);
+}
+```
+
+`super.loadUser(userRequest)` 메서드가 실행되면 DefaultOAuth2UserService의 `loadUser()` 메서드가 실행된다. 이 메서드에서는 Access Token으로 사용자 정보를 가져오는 로직이 구현되어 있다. 내부적으로 리소스 서버에 보낼 HTTP 요청을 생성하는 작업은 OAuthRequestEntityConverter 객체에게 위임하는 것을 볼 수 있었다.
+
+yml 파일에서 user-info-authentication-method 값을 지정할 수 있는데, form으로 지정하면 POST 요청을, 그 외에 header, query로 지정하는 경우 GET 요청으로 생성한다. 기본값은 header다.
+
+POST 요청인 경우에는 Request Body에 Access Token을 담아 전송하고, GET 요청인 경우 Request Header에 Access Token을 담아서 전송하게 된다.
+
+```java
+public RequestEntity<?> convert(OAuth2UserRequest userRequest) {
+  // ...
+  if (HttpMethod.POST.equals(httpMethod)) {
+    headers.setContentType(DEFAULT_CONTENT_TYPE);
+    MultiValueMap<String, String> formParameters = new LinkedMultiValueMap();
+    formParameters.add("access_token", userRequest.getAccessToken().getTokenValue());
+    request = new RequestEntity(formParameters, headers, httpMethod, uri);
+  } else {
+    headers.setBearerAuth(userRequest.getAccessToken().getTokenValue());
+    request = new RequestEntity(headers, httpMethod, uri);
+  }
+
+  return request;
+}
+```
+
+`loadUser()` 메서드에서 Access Token으로 사용자 정보를 얻어와 최종적으로 OAuth2User 구현체를 반환하면 다시 OAuth2LoginAuthenticationProvider로 돌아가 다음 작업을 수행한다.
+
+```java
+OAuth2User oauth2User = this.userService.loadUser(new OAuth2UserRequest(loginAuthenticationToken.getClientRegistration(), accessToken, additionalParameters));
+Collection<? extends GrantedAuthority> mappedAuthorities = this.authoritiesMapper.mapAuthorities(oauth2User.getAuthorities());
+OAuth2LoginAuthenticationToken authenticationResult = new OAuth2LoginAuthenticationToken(loginAuthenticationToken.getClientRegistration(), loginAuthenticationToken.getAuthorizationExchange(), oauth2User, mappedAuthorities, accessToken, authorizationCodeAuthenticationToken.getRefreshToken());
+authenticationResult.setDetails(loginAuthenticationToken.getDetails());
+return authenticationResult;
+```
+
+OAuth2User를 기반으로 OAuth2LoginAuthenticationToken을 생성하고, 이를 반환한다. 결과적으로 다시 OAuth2LoginAuthenticationFilter 클래스로 돌아오면, OAuth2LoginAuthenticationToken을 OAuth2AuthenticationToken으로 변환해 리턴한다.
+
+아직 AbstractAuthenticationProcessingFilter의 `doFilter()` 메서드 내부이다. 여기에서 다음 메서드가 호출된다.
+```java
+this.successfulAuthentication(request, response, chain, authenticationResult);
+```
+
+```java
+protected void successfulAuthentication(HttpServletRequest request, HttpServletResponse response, FilterChain chain, Authentication authResult) throws IOException, ServletException {
+  SecurityContext context = this.securityContextHolderStrategy.createEmptyContext();
+  context.setAuthentication(authResult);
+  this.securityContextHolderStrategy.setContext(context);
+  this.securityContextRepository.saveContext(context, request, response);
+  if (this.logger.isDebugEnabled()) {
+    this.logger.debug(LogMessage.format("Set SecurityContextHolder to %s", authResult));
+  }
+
+  this.rememberMeServices.loginSuccess(request, response, authResult);
+  if (this.eventPublisher != null) {
+    this.eventPublisher.publishEvent(new InteractiveAuthenticationSuccessEvent(authResult, this.getClass()));
+  }
+
+  this.successHandler.onAuthenticationSuccess(request, response, authResult);
+}
+```
+
+`successfulAuthentication()` 메서드에서는 `this.securityContextHolderStrategy.setContext()` 메서드로 Security Context에 인증 객체를 저장한다.
+
+이후 내부적으로 `this.successHandler.onAuthenticationSuccess()` 메서드를 호출한다.
+`doFilter()` 내부에서 `this.unsuccessAuthentication()` 메서드를 호출하는 경우 해당 메서드 내부에서 `this.failureHandler.onAuthenticationFailure()` 메서드를 호출한다.
+
+두 메서드 모두 직접 작성한 클래스다. 보통은 여기에서 DB에 사용자 정보를 저장하고, 서비스 토큰(JWT, 또는 자체 토큰 등)을 발급한 다음 프론트엔드로 응답을 전송하는 로직을 구현한다.
+
+여기까지 수행하면 프론트 서버에서 로그인이 완료되었다는 응답을 받을 수 있다.
+
+___
+
+OAuth2 로그인을 진행할 때 스프링 내부에서 어떻게 동작하는지 각 메서드에 중단점을 찍어가면서 동작을 따라가 보았다. 글의 서두에서 이야기했던 것처럼 많은 것이 추상화 되어 있다보니 꼬리를 물며 따라가는 것이 어려웠다.
+
+하지만 그 과정에서 템플릿 메서드 패턴이나 ProviderManager를 통해 어댑터를 갈아 끼우는 것처럼 구현체에 맞는 Provider의 메서드가 동작하도록 구현된 부분을 자세하게 볼 수 있었다.
