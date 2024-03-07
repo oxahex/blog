@@ -30,7 +30,7 @@ const conponents = {
     <Heading
       as="h2"
       fontSize="1.2rem"
-      padding={{ base: "0.8rem 0" }}
+      padding={{ base: "1rem 0 0.8rem 0" }}
       {...props}
     />
   ),
@@ -38,7 +38,7 @@ const conponents = {
     <Heading
       as="h3"
       fontSize="1rem"
-      padding={{ base: "0.5rem 0" }}
+      padding={{ base: "1rem 0 0.5rem 0" }}
       {...props}
     />
   ),
@@ -46,7 +46,7 @@ const conponents = {
     <Heading
       as="h4"
       fontSize="0.8rem"
-      padding={{ base: "0.5rem 0" }}
+      padding={{ base: "1rem 0 0.5rem 0" }}
       {...props}
     />
   ),
