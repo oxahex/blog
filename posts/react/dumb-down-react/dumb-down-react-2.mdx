@@ -1,0 +1,157 @@
+---
+slug: dumb-down-react-2
+title: "React Concurrent Mode 구현해보기"
+description: "React의 Concurrent Mode를 단순화하여 구현"
+author: oxahex
+createdAt: 2022-01-17
+tags: ["react"]
+---
+
+React는 자바스크립트 기반이기 때문에 싱글 스레드로 동작한다.
+
+그러나 Concurrent Mode를 이용하면 여러 작업을 동시에 처리할 수 있다. 기본적으로 리액트는 UI 렌더링 도중에 렌더링 이외의 모든 작업을 중단하는데, 동시성은 여러 작업을 작은 단위로 나눈 뒤 그들 간의 우선 순위를 정하고 작업을 번갈아 수행하는 방식이다. 실제로 작업이 동시에 이루어지는 것은 아니지만 작업 간 전환이 매우 빠르게 일어나기 때문에 동시에 작업하는 것과 같은 효과를 낸다.
+
+보통 이런 문제를 해결하기 위해 디바운스나 스로틀이 사용되는데, 이 방식에는 약간의 문제가 있다.
+
+유저가 input에 뭔가를 입력함과 동시에 무거운 작업을 수행해야 하는 경우, 디바운스는 사용자의 마지막 입력이 끝난 뒤 일정 시간이 지나면 작업을 시작한다. 이 방법은 좋지만 기기의 성능과 관계 없이 무조건 일정 시간을 기다려야 한다. 기기가 좋으면 기다리는 시간이 줄어들 수는 있으나 기기 성능이 좋을 수록 손해다. 또 사용자 입력 도중에는 무거운 작업 처리가 이루어지지 않는 것도 단점이다.
+
+디바운스에서 입력 도중에 무거운 작업 처리가 이루어지지 않는 문제는 스로틀로 어느정도 해결이 가능하다. 스로틀은 입력 중에 주기적으로 무거운 작업을 수행하는 방식이다. 스로틀 주기를 짧게 가져갈 수록 성능이 좋은 기기에서는 사용자 경험을 높일 수 있다. 반면 성능이 나쁘다면 버벅거림이 심해진다.
+
+Concurrent Mode는 디바운스와 스로틀의 한계를 동시성으로 해결한다. 작업간 전환이 빠르기 때문에 사용자의 입력과 무거운 작업이 동시에 처리될 수 있다. 그런 것처럼 보인다. 작업 처리 속도는 개발자가 설정한 delay 타임에 의존하는 것이 아니라 사용자의 기기 성능에 의존한다. Concurrent Mode는 일정 시간동안 현재 페이지의 기능을 유지하고, 동시에 다음 페이지에 대한 렌더링을 진행하는 방식으로 문제를 해결한다. state 변경 시 현재의 UI를 유지하되 변경을 준비하고, 이후 준비 중인 UI의 렌더링 단계가 특정 조건을 만족하면 이를 DOM에 반영한다.
+
+이 부분을 단순화해서 구현하려면 추가적으로 함수를 더 만들어야 한다.
+1. state 변경 시 현재의 UI를 어떻게 유지할 수 있을까?
+2. 특정 조건을 만족할 때, 특정 조건은 무엇이며 렌더링 단계가 특정 조건을 만족했음은 어떻게 알 수 있을까?
+3. 동시성을 어떻게 구현할 수 있을까?(렌더링 작업을 어떻게 작은 단위로 나누는가?)
+4. 우선 3번을 구현해보기로 했다. 작업을 작은 단위로 나누고, 각 단위를 완료한 시점에 추가로 수행해야 하는 작업이 있으면 브라우가 렌더링을 중단하도록 한다.
+
+```javascript
+// Loop
+requestIdleCallback(workLoop);
+```
+
+`requestIdleCallback()`은 브라우저의 메인 스레드가 비어 있으면 지정한 callback 함수를 실행한다. 위 코드의 경우 스레드가 비면 `workLoop()`를 실행한다.
+
+`workLoop()`는 작업을 스케줄링하는 역할을 한다. 스케줄링이라기보다는 그냥 특정 조건에 부합하는 경우 계속해서 작업을 진행하도록 하는 함수다. 찾아보니 리액트는 이를 사용하지 않고 스케줄링 라이브러리를 사용한다고 한다.
+
+```javascript
+let nextWork = null;
+
+function workLoop(deadline) {
+ let shouldYield = false;
+
+ while (nextWork && !shouldYield) {
+   nextWork = doNextWork(nextWork);
+   shouldYield = deadline.timeRemaining() < 1;
+ }
+
+ requestIdleCallback(workLoop);
+}
+
+// Loop
+requestIdleCallback(workLoop);
+```
+
+작업을 계속 진행하기 위한 조건은 두 가지다.
+
+`doNextWork.shouldYield`는 `deadline.timeRemaining() < 1` 조건식이 할당되어 있는데, 이 조건을 만족하는 경우 `true`가 되면서 대기 상태가 된다. 조건식을 만족한다면 let으로 선언된 nextWork를 파라미터로 받는 `doNextWork()`가 실행된다. nextWork는 작업을 잘게 잘랐을 때 자른 작업 하나를 의미하고, 따라서 nextWork가 존재하고, `shouldYield === false` 상태일 때 작업을 진행한다. 이 작업은 `doNextWork()` 함수가 한다. 조건을 만족하지 못하면 while 문을 탈출해서 다시 루프를 돌린다.
+
+최초에 호출되는 render 함수는 가장 최초로 실행될 작업으로 root element를 nextWork에 할당한다. 현재 `requestIdleCallback()` 함수가 돌고 있으므로 가능하다. 그러면 작업을 위한 첫 번째 조건을 만족하게 된다.
+
+```javascript
+let nextWork = null;
+
+function render(element, container) {
+ nextWork = {
+   dom: container,
+   props: {
+     children: [element],
+   },
+ };
+}
+```
+
+`doNextWork()` 함수에서는 Element를 DOM에 추가하고, 해당 Element의 child fiber를 만든다. 그리고 다음 작업 단위를 선택한다.
+파라미터로 넘겨 받은 fiber는 nextWork, 즉 잘게 잘린 작업 단위이다. 최초에 render 함수 실행 시 여기에는 root element가 할당된다.
+
+fiber에 DOM이 없는 경우 createDom 함수를 이용해 DOM을 생성하고, parent가 있는 경우 파라미터로 넘겨 받은 현재 작업 단위의 fiber DOM을 parent의 child로 만든다.
+
+```javascript
+function doNextWork(fiber) {
+ if (!fiber.dom) {
+   fiber.dom = createDom(fiber);
+ }
+
+ if (fiber.parent) {
+   fiber.parent.dom.appendChild(fiber.dom);
+ }
+
+    // ***
+    // ***
+
+}
+```
+
+그리고 각 child를 새로운 fiber로 만든다. child의 수 만큼 반복문을 돌며 newFiber라는 이름으로 각각의 child를 fiber로 만들고, 각 child의 순서에 따라 이 child와 sibling을 분기한다. 첫 번째 child는 child이고, 두 번째부터는 sibling이 된다.
+
+```javascript
+function doNextWork(fiber) {
+
+   // ...
+
+    const elements = fiber.props.children;
+    let idx = 0;
+    let prevSibling = null;
+
+    while (idx < elements.length) {
+      const element = elements[idx];
+      const newFiber = {
+          type: element.type,
+          props: element.props,
+          parent: fiber,
+          dom: null,
+      };
+
+      if (idx === 0) {
+          fiber.child = newFiber;
+      } else {
+          prevSibling.sibling = newFiber;
+      }
+
+      prevSibling = newFiber;
+      idx++;
+    }
+
+    if (fiber.child) {
+        return fiber.child;
+    }
+
+    // ...
+}
+```
+
+fiber에 child가 있다면 fiber.child를 반환하고, 없다면 sibling을 탐색한다. nextFiber에 현재 fiber를 할당해 모든 sibling에 대한 작업이 끝날 때까지 해당 작업 범위를 이탈하지 않도록 한다. 더 이상 작업해야 할 sibling이 없다면 nextFiber에 fiber.parent를 할당해 parent의 sibling들을 이어서 탐색하도록 한다.
+
+```javascript
+function doNextWork(fiber) {
+
+    // ***
+    // ***
+
+ let nextFiber = fiber;
+ while (nextFiber) {
+   if (nextFiber.sibling) {
+     return nextFiber.sibling;
+   }
+   nextFiber = nextFiber.parent;
+ }
+}
+```
+
+결과적으로 이 작업이 반복되면 더는 탐색할 것이 없는 root element에 도달하게 된다. 그러면 모든 작업을 마친 것이다.
+
+그런데 문제는 작업을 작게 잘라서 DOM에 추가하고 있기 때문에 전체 트리를 모두 렌더링하기 전에 브라우저에 의해 이 작업이 방해될 수 있다. 그러면 작업이 끝난 일부분만 화면에 노출되고 사용자는 불완전한 UI를 보게 된다. 따라서 DOM을 변경시키는 부분을 제거하고, 렌더가 전체적으로 마무리 되었을 때 한 번에 DOM에 commit 하는 기능이 필요하다. 이건 어떻게 구현할 수 있을까?
+
+
+---
+[Dumb Down React 작업 링크](https://github.com/oxahex/dumb-down-react)
