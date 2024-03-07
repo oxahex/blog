@@ -1,0 +1,546 @@
+---
+slug: spring-mvc-pattern
+title: "MVC 패턴이 해결하는 문제들"
+description: "MVC 패턴은 어떤 문제를 해결하기 위해 등장했는지 궁금해서 공부"
+author: oxahex
+createdAt: 2023-10-12
+tags: ["spring"]
+---
+
+## MVC Pattern
+
+### MVC 패턴으로 해결할 수 있는 문제
+
+서블릿만 이용해 웹 애플리케이션을 구현하면 비즈니스 로직을 구현하는 부분에 화면을 렌더링하는 로직이 섞이게 된다. JSP 역시 화면을 그리는 부분에 비즈니스 로직이 섞인다.
+
+비즈니스 로직을 구현하는 코드와 뷰를 렌더링하는 코드는 역할이 명확히 다르다. 역할이 다르다는 것은 두 코드가 서로 영향을 주지 않는다는 것을 의미한다. 예전에는 이게 이해가 잘 안 됐는데 이제는 이해가 된다.
+
+서로 연관이 없는 두 코드가 한 페이지 안에 섞이게 되면서 발생하는 문제들을 해결하려면 각각의 코드를 서로 다른 곳에 구현해야 한다. 그래서 나온 것이 MVC 패턴이다.
+
+MVC 패턴을 도입한다는 것은 비즈니스 로직(컨트롤러)과 뷰 로직(뷰)의 공통 관심사인 데이터를 모델 계층으로 분리한다는 것이다. 비즈니스 로직은 데이터를 모델에 담고, 뷰 로직은 모델을 참조해서 화면을 그린다. 기존과 달리 모델 계층을 사이에 두기 때문에 뷰 로직이 비즈니스 로직을 호출하는 일이 없다. 결과적으로 상호 의존도가 낮아진다.
+
+Servlet과 JSP로 MCV 패턴을 구현하면 Model은 Request 객체 내부에 저장하게 된다.
+
+```java
+request.setAttribute("user", user);
+```
+
+Map 형태이기 때문에 Key-Value로 데이터를 저장한다. 그러면 .jsp 파일 내부에서는 키값을 통해 데이터에 접근할 수 있다.
+
+
+### MVC 패턴만으로 해결하기 어려운 문제
+MVC 패턴을 적용하면 컨트롤러의 역할과 뷰를 렌더링하는 역할을 명확하게 구분할 수 있다. 그러나 중복이 많다. 뷰로 이동하는 부분과 이동할 뷰의 경로를 잡아주는 부분이 각 컨트롤러에서 중복된다.
+
+```java
+String viewPath = "/WEB_INF/views/...";
+RequestDispatcher dispatcher = request.getRequestDispatcher(viewPath);
+dispatcher.forward(request, response);
+```
+
+이런 부분을 공통으로 처리하는 로직을 추출할 수도 있겠지만(단순히 반복을 제거) 그렇게 하더라도 어쨌든 필요한 부분에서 공통 처리 메서드를 호출해야 한다. 공통 처리 메서드 호출 자체도 중복이다.
+
+이 부분을 해결하기 위한 방법 중 하나는 컨트롤러 호출 전에 **공통 부분을 먼저 처리**해주는 것이다. 컨트롤러로 들어오기 전에 항상 거쳐야 하는 객체를 만든다. 모든 HTTP 요청은 이 객체를 거치도록 하고, 여기에서 공통 처리를 한다. 그리고 이 객체가 각 요청에 맞는 컨트롤러를 호출하도록 한다. 이런 패턴을 **프론트 컨트롤러 패턴**이라고 한다.
+
+
+## 프론트 컨트롤러 패턴 도입
+
+서블릿 + JSP 기반 코드의 문제점을 보완하기 위해 Front Controller 패턴을 기존 코드에 적용했다.
+
+우선 Front Controller 역할을 하는 서블릿을 만든다. 그리고 이쪽으로 모든 HTTP 요청을 받는다. Front Controller 서블릿에서 공통 로직을 실행하고 각 요청에 맞는 다른 컨트롤러를 찾아서 호출한다. 이렇게 하면 Front Controller만 서블릿을 사용하고, 그 외의 컨트롤러는 서블릿을 사용하지 않아도 된다.
+
+**Spring Web MVC의 DispatcherServlet이 Front Controller Pattern으로 구현이 되어 있다.**
+
+
+HTTP 요청은 모두 Front Controller를 거친다.
+Front Controller는 URL 매핑 정보를 통해 어떤 컨트롤러로 연결해주어야 하는지 조회하고, 해당 컨트롤러를 호출한다. 각 컨트롤러는 비즈니스 로직을 수행하고 모델에 데이터를 담아 해당 JSP로 포워딩한다.
+
+### Controller Interface
+
+각각의 서블릿 객체를 ControllerV1 인터페이스를 상속 받는 클래스로 변경했다.
+
+```java
+public interface ControllerV1 {
+
+    void process(
+            HttpServletRequest request, HttpServletResponse response
+    ) throws ServletException, IOException;
+}
+```
+HttpServlet의 메서드를 그대로 옮겼다. ControllerV1 인터페이스를 상속받는 다른 컨트롤러들은 이 메서드를 구현해야 한다. HttpServlet 추상 클래스를 가지고 서블릿 객체를 구현했던 것과 동일하다.
+
+유저 정보를 저장하는 컨트롤러는 ControllerV1 인터페이스를 상속한다.
+
+```java
+public class UserSaveControllerV1 implements Controller {
+
+    private UserRepository userRepository = UserRepository.getInstance();
+
+    @Override
+    public void process(
+    	HttpServletRequest request,
+        HttpServletResponse response
+    ) throws ServletException, IOException {
+
+        String username = request.getParameter("username");
+        int age = Integer.parseInt(request.getParameter("age"));
+
+        User user = new User(username, age);
+        userRepository.save(user);
+
+        request.setAttribute("user", user);
+
+        String viewPath = "/WEB-INF/views/save-result.jsp";
+        RequestDispatcher dispatcher = request.getRequestDispatcher(viewPath);
+        dispatcher.forward(request, response);
+    }
+}
+```
+
+이렇게 만든 UserSaveControllerV1은 서블릿이 아니라 않고, 그냥 똑같은 로직을 수행하는 자바 클래스다.
+
+### Front Controller Servlet
+유일하게 HttpServlet 추상 클래스를 가지고 만든 서블릿 객체다.
+
+```java
+@WebServlet(name = "frontControllerServletV1", urlPatterns = "/v1/*")
+public class FrontControllerServletV1 extends HttpServlet {
+
+    private Map<String, ControllerV1> controllerMap = new HashMap<>();
+
+	// 생성자로 URL 매핑 정보 생성
+    public FrontControllerServletV1() {
+        controllerMap.put("/v1/users/join", new UserFormControllerV1());
+        controllerMap.put("/v1/users/save", new UserSaveControllerV1());
+        controllerMap.put("/v1/users", new UserListControllerV1());
+    }
+
+    @Override
+    protected void service(
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws ServletException, IOException {
+
+        System.out.println("FrontControllerServletV1.service");
+    }
+}
+```
+
+URL Path에 맞는 Controller 객체를 매핑해두었다. 모든 컨트롤러는 ControllerV1 인터페이스를 상속받았기 때문에 이런 식으로 매핑을 하는 것이 가능하다.
+
+```java
+String requestURI = request.getRequestURI();
+ControllerV1 controller = controllerMap.get(requestURI);
+
+if (controller == null) {
+	response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+    return;
+}
+
+controller.process(request, response);
+```
+
+Front Controller 서블릿은 `/v1/*` 하위로 들어오는 모든 HTTP 요청을 받고, URL에 따라 매핑된 컨트롤러를 호출할 수 있다.
+
+
+## 화면 렌더링 로직 분리
+
+이렇게 프론트 컨트롤러 패턴을 단순하게 도입했을 때 몇가지 문제가 남는다. 아직 화면을 렌더링하는 역할이 컨트롤러에 있다.
+
+현재는 모든 컨트롤러에서 각각의 뷰로 포워딩 처리를 해주고 있다. 이 부분도 MVC에서 모델 계층을 따로 만들었던 것처럼 전달해야 하는 리소스 위치와 데이터를 가지고 있는 View 객체를 만들어 중복을 줄일 수 있다.
+
+### Controller Interface
+
+컨트롤러 인터페이스를 변경했다. Front Controller에서 View 객체의 메서드에 접근할 수 있도록 반환값을 View 객체로 지정했다.
+
+```java
+public interface ControllerV2 {
+
+    View process(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException;
+}
+````
+
+### View 객체
+
+```java
+public class View {
+
+    private String viewPath;
+
+    public View(String viewPath) {
+        this.viewPath = viewPath;
+    }
+
+    public void render(
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws ServletException, IOException {
+
+        RequestDispatcher dispatcher = request.getRequestDispatcher(viewPath);
+        dispatcher.forward(request, response);
+    }
+}
+```
+
+생성자에서 화면을 그릴 리소스의 위치를 받는다. `render()`를 호출하면 해당 위치로 포워딩하는 로직이 실행된다.
+
+각 컨트롤러에서는 필요한 작업을 실행한 후
+
+```java
+return new View("/WEB-INF/views/save-result.jsp");
+````
+
+이런 식으로 View 객체를 리턴한다.
+
+그러면 Front Controller는 URL을 기반으로 각 요청에 맞는 컨트롤러를 호출하는 역할과, 각 컨트롤러의 반환값인 View의 `render()` 메서드를 실행하는 역할을 갖게 된다.
+
+
+
+## 컨트롤러가 서블릿에 종속되지 않도록 역할 분리
+
+몇 가지 남아있는 문제는 다음과 같다.
+
+컨트롤러 입장에서 이제는 HttpServletRequest, HttpServletResponse 정보가 필요하지 않다. 실제로 필요한 것은 비즈니스 로직을 실행하기 위한 HTTP Request 정보다. 이 부분을 Front Controller에서 한 번 더 가공해서 컨트롤러에서 필요한 정보만 Map으로 넘겨줄 수 있다. 그러면 컨트롤러는 서블릿 기술에 종속되지 않을 수 있다. 구현 코드 자체도 단순해지고, 컨트롤러의 기능만을 테스트하는 코드 작성 시 의존성을 고려하지 않아도 되기 때문에 간편하다.
+
+그러면 Front Controller에서 전체 request, response를 각 컨트롤러로 넘겨주지 않아도 된다. 각 컨트롤러는 반환할 정보만 Model 객체에 담아서 Front Controller에 반환하고, Front Controller는 Model 객체를 기반으로 `render()` 메서드에 Model 객체를 파라미터로 넘겨 실행하면 된다.
+
+또 각 컨트롤러에서 View 객체를 생성할 때 해당 리소스의 위치를 그대로 넣어서 생성 후 반환하고 있다. 이 부분도 View 객체 생성 시 각 컨트롤러에서는 실제 위치를 의미하는 논리 이름을 넣어서 반환하고, Front Controller에서 논리 이름을 기반으로 실제 물리 위치로 동작하도록 할 수 있다. 그러면 물리 위치가 변하더라도 Front Controller의 매핑 정보만 변경하면 된다.
+
+### ModelView 객체
+
+그려야 하는 화면의 논리 이름과 필요한 데이터 정보를 포함하는 객체다.
+
+```java
+@Getter @Setter
+@RequiredArgsConstructor
+public class ModelView {
+
+    private final String viewName;
+    private Map<String, Object> model = new HashMap<>();
+}
+```
+
+### Controller Interface
+
+기존 컨트롤러에서 서블릿 종속성이 모두 제거하면 아래와 같다.
+
+```java
+public interface ControllerV3 {
+
+    ModelView process(Map<String, String> param);
+}
+```
+
+각 컨트롤러는 Front Controller로부터 넘어온 param을 가지고 비즈니스 로직을 수행하고,
+
+```java
+ModelView mv = new ModelView("save-result");
+mv.getModel().put("user", user);
+
+return mv;
+```
+
+이런 식으로 리소스의 논리 이름과 데이터를 ModelView에 담아 반환한다. 현재 컨트롤러에서는 서블릿 관련 기능이 모두 제거되었고, 단순히 Map 형식의 정보를 받아 작업을 실행한 후 ModelView 객체를 반환하도록 역할이 축소되었다.
+
+
+### Front Controller Servlet
+
+컨트롤러의 역할이 축소되었다는 것은 각종 처리를 Front Controller에서 추가적으로 수행해야 함을 의미한다.
+
+우선 각 컨트롤러에서 필요로 하는 데이터를 Map 타입으로 가공해서 적절한 컨트롤러를 호출해야 한다.
+
+```java
+// Param 생성
+Map<String, String> params = createParams(request);
+
+// 컨트롤러 호출
+ModelView mv = controller.process(params);
+```
+
+request 객체에서 Map 타입으로 데이터를 반환하는 로직을 추가했다.
+
+```java
+private Map<String, String> createParams(HttpServletRequest request) {
+    Map<String, String> params = new HashMap<>();
+    request.getParameterNames().asIterator()
+            .forEachRemaining(x -> params.put(x, request.getParameter(x)));
+	return params;
+}
+```
+
+Front Controller의 `service()` 메서드 내에서 해도 동작은 하지만 `service()` 메서드는 조금 더 추상화된 로직을 실행할 수 있도록 매핑과 같은 디테일한 작업은 따로 메서드를 뺐다.
+
+그 다음으로는 각 컨트롤러의 리턴값인 ModelView 객체를 기반으로 리소스의 물리 위치를 매핑하고 View 객체에 Model 객체를 태워서 `render()` 메서드를 호출해야 한다.
+
+```java
+// 논리 이름 -> 물리 위치
+View view = viewResolver(mv.getViewName());
+
+// 렌더링 로직 호출
+view.render(mv.getModel(), request, response);
+```
+```java
+private View viewResolver(String viewName) {
+    return new View("/WEB-INF/views/" + viewName + ".jsp");
+}
+```
+
+같은 이유로 논리 이름을 물리 위치로 변환하는 로직도 따로 뺐다. 이 부분은 따로 매핑 테이블이 있는 쪽이 조금 더 나을 것 같다. 지금은 각 컨트롤러에서 겹치는 URL을 제외한 이름을 그냥 보내고, 그걸 기반으로 물리 위치를 잡고 있기 때문에 완전한 논리 이름을 가지고 물리 위치를 찾고 있다고 하기는 어렵다.
+
+렌더링 로직을 호출하는 부분은 View의 기존 `render()` 메서드와 다르다.
+
+기존에는 request 객체 내부에 데이터를 담았기 때문에 Model 객체를 함께 넘겨줄 필요가 없었으나 이제는 Model을 분리했기 때문에 View 객체 내부에서 데이터를 가지고 request 객체에 attribute를 세팅하는 작업을 해주어야 한다.
+
+```java
+// model.forEach(request::setAttribute);
+model.forEach((key, value) -> request.setAttribute(key, value));
+```
+이 작업이 추가된다. 지금은 메서드 오버로딩 처리를 했다.
+
+
+## 사용성 개선
+
+좋은 프레임워크는 아키텍쳐도 중요하지만 개발자가 단순하고 편리하게 개발을 할 수 있도록 실용성을 높이는 것도 중요하다.
+
+구조적인 부분은 이전 단계에서 어느정도 완성이 되었지만 조금 더 사용하기 편하게 하려면 이런 부분을 고민해볼 수 있다. 현재는 컨트롤러에서 계속 ModelView 객체를 생성하고 반환해야 한다. ModelView를 반환하지 않고 viewName만 반환하더라도 동작에 문제가 없도록 변경할 수 있다.
+
+### Controller Interface
+
+이전 단계에서는 ModelView를 반환했다. 이제는 ModelView 객체 대신 리소스의 논리 이름만 반환한다. 물론 그러면 Front Controller의 역할이 늘어난다. Front Controller가 Model 객체를 만들어서 컨트롤러의 파라미터로 넘겨준다.
+
+```java
+public interface ControllerV4 {
+
+    String process(Map<String, String> params, Map<String, Object> model);
+}
+```
+
+각각의 컨트롤러는 넘겨 받은 model에 데이터를 담고, 리소스의 논리 이름만 반환하면 된다.
+
+### Front Controller Servlet
+
+```java
+// Param, Model 생성
+Map<String, String> params = createParams(request);
+Map<String, Object> model = new HashMap<>();
+
+String viewName = controller.process(params, model);
+```
+
+Front Controller에서 생성한 Model 객체를 컨트롤러의 파라미터로 넘겨 각 컨트롤러에서 접근 가능하도록 하면, 각 객체에서 참조하는 Model 객체는 동일한 객체다.
+
+```java
+// 논리 이름 -> 물리 위치
+View view = viewResolver(viewName);
+
+// 렌더링 로직 호출
+view.render(model, request, response);
+```
+
+그러면 나머지 로직은 동일하다.
+
+
+## 경우에 따라 컨트롤러 인터페이스를 교체할 수 있도록 개션
+
+현재 구조에서는 컨트롤러 인터페이스의 버전을 변경할 수 없다. Front Controller 내부에서 요청 URL에 맞는 컨트롤러를 호출할 수 있도록 매핑해준 부분에 Controller Interface가 고정되어 있다. 이 부분은 인터페이스의 장점이자 단점이다.
+
+```java
+private Map<String, ControllerV4> controllerMap = new HashMap<>();
+```
+
+어떤 컨트롤러든 불러와서 사용할 수 있게 하려면 어떻게 해야 할까? 경우에 따라 ControllerV3를 사용하는 것이 더 나을 때는 해당 인터페이스로 구현한 컨트롤러를 쓸 수 있도록 유연하게 변경이 가능하도록 할 수 있다.
+
+ControllerV3와 ControllerV4는 역할은 동일하지만 완전히 다른 인터페이스로 구현이 되어 있어서 호환이 불가능하다. 이를 호환 가능하게 만들기 위해서는 어댑터가 필요하다.
+
+어댑터를 사용해서 맞지 않는 부분을 연결해주면, Front Controller 내부에서 필요한 컨트롤러의 인터페이스를 변경하지 않고도 다양한 컨트롤러를 사용할 수 있다.
+
+```java
+public interface HandlerAdapter {
+
+    boolean supports(Object handler);
+
+    ModelView handler(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            Object handler
+    ) throws ServletException, IOException;
+}
+```
+
+기존에는 Front Controller가 직접 각각의 컨트롤러를 호출했다면 어댑터가 실제 컨트롤러를 호출하고, 그 결과로 ModelView 객체를 반환한다.
+
+`support()` 메서드는 HandlerAdapter의 구현체가 해당 Handler를 지원하는지 여부를 확인하는 역할을 한다.
+
+`handler()` 메서드는 `support()` 메서드로 지원 여부를 확인한 이후에 해당 handler를 호출하는 역할을 한다.
+
+
+### ControllerV3 Adapter
+
+ControllerV3 어댑터는 HandlerAdapter 인터페이스를 구현하고, ControllerV3 인터페이스로 구현된 컨트롤러와 Front Controller가 호환되도록 한다.
+
+`supports()` 메서드에서 handler가 ControllerV3 인터페이스의 구현체인지 확인한다.
+
+```java
+@Override
+public boolean supports(Object handler) {
+return (handler instanceof ControllerV3);
+}
+```
+
+`handler()` 메서드는 실질적으로 ControllerV3 handler를 동작하는 역할을 하게 된다.
+
+```java
+@Override
+public ModelView handler(
+	HttpServletRequest request,
+    HttpServletResponse response,
+    Object handler
+) throws ServletException, IOException {
+
+	ControllerV3 controller = (ControllerV3) handler;
+
+	Map<String, String> params = createParams(request);
+
+    return controller.process(params);
+}
+```
+
+이미 `supports()` 메서드로 ControllerV3 인터페이스의 구현체임이 확인된 handler만 들어올 수 있기 때문에 메서드 내부에서 타입 캐스팅을 했다.
+
+그리고 기존에는 Front Controller에서 컨트롤러를 직접적으로 호출했지만, 어댑터가 이 역할을 수행한다. Request 객체로 넘어온 데이터를 파라미터로 매핑하고, 컨트롤러의 `process()` 메서드에 HTTP Request 데이터를 파라미터로 넘겨 호출한다.
+
+이제 Front Controller는 각각의 컨트롤러를 호출하지 않는다. 다만 HTTP Request URI에 대한 정보를 가지고 어댑터를 매핑한다.
+
+```java
+// 핸들러 매핑
+private final Map<String, Object> handlerMappingMap = new HashMap<>();
+
+// 사용 가능한 핸들러 목록
+private final List<HandlerAdapter> handlerAdapters = new ArrayList<>();
+```
+
+Front Controller 서블릿 객체 생성 시점에 사용 가능한 핸들러 목록과 각 URI로 들어온 요청을 처리하는 데 필요한 핸들러(컨트롤러 구현체) 정보를 들고 있도록 한다.
+
+```java
+// 생성자
+public FrontControllerServletV5() {
+	initHandlerMappingMap();
+    initHandlerAdapters();
+}
+
+// 사용할 컨트롤러(핸들러) 매핑
+private void initHandlerMappingMap() {
+	handlerMappingMap.put("/front-controller/v5/users/join", new UserFormControllerV3());
+	handlerMappingMap.put("/front-controller/v5/users/save", new UserSaveControllerV3());
+	handlerMappingMap.put("/front-controller/v5/users", new UserListControllerV3());
+}
+
+// 사용 가능한 핸들러 어댑터 등록
+private void initHandlerAdapters() {
+	handlerAdapters.add(new ControllerV3HandlerAdapter());
+}
+```
+
+그러면 HTTP Request URI를 가지고 어떤 핸들러가 필요한지 매핑되어 있기 때문에 아래와 같이 해당 핸들러를 사용하는 데 필요한 핸들러(컨트롤러)를 찾을 수 있다.
+
+```java
+private Object getHandler(HttpServletRequest request) {
+	String requestURI = request.getRequestURI();
+    return handlerMappingMap.get(requestURI);
+}
+```
+
+`service()` 메서드 내부에서 핸들러(컨트롤러)를 찾아오고,
+
+```java
+Object handler = getHandler(request);
+```
+이 핸들러에 맞는 핸들러 어댑터를 찾아와 핸들러 어댑터가 실제 핸들러를 실행하도록 한다.
+
+```java
+// Handler Adapter 찾음
+	HandlerAdapter adapter = getHandlerAdapter(handler);
+	ModelView mv = adapter.handler(request, response, handler);
+```
+
+```java
+private HandlerAdapter getHandlerAdapter(Object handler) {
+	for (HandlerAdapter adapter : handlerAdapters) {
+		if (adapter.supports(handler)) return adapter;
+	}
+
+    throw new IllegalArgumentException(
+    	"Handler Adapter를 찾을 수 없음 -> handler: " + handler
+	);
+}
+```
+
+핸들러 어댑터는 Front Controller로부터 넘겨받은 Request, Response 객체와 특정 핸들러를 파라미터로 받아 핸들러를 실행하고, 그 결과(ModelView)를 반환한다.
+
+그러면 Front Controller는 기존과 동일하게 ModelView 객체를 받을 수 있기 떄문에 이하의 작업을 그대로 수행한다.
+
+그러면 Request URI가 `/v5/*`로 들어오더라도 ControllerV3의 구현체를 이용할 수 있다.
+
+그러면 이후에 이런식으로 RequestURI에 따라 사용할 핸들러를 매핑해두고, 해당 핸들러의 어댑터를 사용 가능한 어댑터 리스트에 추가해두면, 매핑 정보를 변경하는 것으로 컨트롤러를 교체할 수 있다.
+
+이렇게 하면 Front Controller에 다른 핸들러 어댑터를 사용 가능하도록 추가하고, Request URI 매핑 정보만 교체하면 다른 핸들러(컨트롤러)를 사용할 수 있다.
+
+### ControllerV4 Adapter
+다른 컨트롤러 인터페이스는 ModelView 객체를 반환하나, V4 버전의 컨트롤러 인터페이스는 viewName을 반환한다.
+즉, 각각의 핸들러(컨트롤러) 마다 동작이 다를 때 이런 부분을 어떻게 호환 가능하도록 할 수 있을까? 이런 부분을 처리해주는 것이 어댑터의 역할이다.
+
+모든 핸들러 어댑터는 인터페이스에서 정의한 대로 ModelView를 반환해야 한다. 그래야 Front Controller는 핸들러 어댑터를 호출하면 ModelView가 반환된다는 것만 알고 각자 동작할 수 있다(역할 분리).
+
+```java
+@Override
+public ModelView handler(
+	HttpServletRequest request,
+    HttpServletResponse response,
+    Object handler
+) throws ServletException, IOException {
+
+	ControllerV4 controller = (ControllerV4) handler;
+
+	Map<String, String> params = createParams(request);
+	Map<String, Object> model = new HashMap<>();
+
+    String viewName = controller.process(params, model);
+
+    ModelView mv = new ModelView(viewName);
+    mv.setModel(model);
+
+    return mv;
+}
+```
+
+ControllerV3의 구현체들은 Request 객체를 받아 구현체 내부에서 ModelView를 만들어 반환한다. 반면 ControllerV4의 구현체들은 V3와 달리 서블릿 의존성을 걷어냈다. 때문에 Front Controller에서 생성한 Model 객체를 파라미터로 받아 데이터를 저장하고 리소스의 논리 이름만을 반환한다. 이 차이를 어댑터에서 맞추도록 한다.
+
+ControllerV4의 어댑터는 ControllerV3 어댑터와 달리 이 부분을 처리하고 똑같이 ModelView를 반환한다.
+
+유저를 저장하는 부분만 ContollerV4 구현체 핸들러를 사용하고 싶다면,
+
+```java
+private void initHandlerMappingMap() {
+	handlerMappingMap.put("/front-controller/v5/users/join", new UserFormControllerV3());
+    handlerMappingMap.put("/front-controller/v5/users/save", new UserSaveControllerV4());
+    handlerMappingMap.put("/front-controller/v5/users", new UserListControllerV3());
+}
+
+private void initHandlerAdapters() {
+    handlerAdapters.add(new ControllerV3HandlerAdapter());
+    handlerAdapters.add(new ControllerV4HandlerAdapter());
+    }
+```
+
+핸들러 매핑 정보를 업데이트 해주고, 해당 핸들러 어댑터를 추가로 등록해주면 된다.
+
+기능이 확장되었음에도 Front Controller에서 수정한 부분은 매핑 정보와 핸들러 어댑터 목록 뿐이다. Front Controller를 거의 수정하지 않고도 기능 확장, 변경이 가능하다.
+
+물론 이런 매핑 정보나 사용 가능한 핸들러 어댑터 목록과 같은 설정 정보를 외부에서 주입받도록 하면 Front Controller의 코드를 아예 변경하지 않고도 기능 확장이 가능하다(OCP).
+
+
+
+
+
+
+
