@@ -118,3 +118,217 @@ ServletTest이라는 이름의 클래스를 관리하는 것은 Servlet Containe
 
 반대로 이 값을 너무 높게 설정하면 임계점을 지나는 순간 바로 WAS가 죽는다.
 어쨌든 이 Thread Pool의 Max Thread 최적해를 찾는 것이 중요한데 이걸 어떻게 찾아야 하나? 로직의 복잡도에 따라 다르고 인스턴스의 CPU 성능, 메모리, IO 리소스를 얼마나 쓰는지에 따라 사실 다 다르다. 결국 성능테스트를 통해 대략적인 감을 잡을 수밖에 없다. Apache ab, 제이미터, nGrinder 등의 툴로 스크립트 짜서 요청을 날려서 트래픽을 얼마나 받을 수 있는지 확인하고 병목 포인트를 찾아서 해결하는 식으로 해야 한다.
+
+## Servlet
+서블릿을 사용하는 이유는 결국 HTTP Request를 받고, HTTP Response를 내려주는 과정을 좀 더 편하게 하려는 것이다.
+
+```java
+import javax.servlet.ServletException;
+import javax.servlet.annotation.WebServlet;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+
+@WebServlet(name = "servletTest", urlPatterns = "/test")
+public class HelloServlet extends HttpServlet {
+
+    @Override
+    protected void service(
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws ServletException, IOException {
+
+        System.out.println("ServletTest.service");
+        System.out.println("request = " + request);
+        System.out.println("response = " + response);
+
+        String username = request.getParameter("username");
+        System.out.println("username = " + username);
+
+        response.setContentType("text/plain");
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write("hello" + username);
+    }
+}
+```
+
+`http://localhost:8080/test?username=이름` URL로 요청을 보내면 GET 방식의 HTTP Request를 /test로 보내게 된다.
+
+```text
+GET /test?username=%EC%9D%B4%EB%A6%84 HTTP/1.1
+HOST: localhost:8080
+```
+
+Response 객체에 GET 방식으로 받은 데이터를 그대로 다시 담아서 plain text로 응답했기 때문에 아래와 같은 HTTP Response 응답이 나가게 된다.
+
+```text
+HTTP/1.1 200
+Content-Type: text/plain;charset=UTF-8
+Content-Length: 6
+
+hello 이름
+````
+
+전반적인 동작은 이렇다.
+- 서블릿 컨테이너 안에 `servletTest` 객체가 생성된다.
+- /hello URL로 GET 요청을 보냈다.
+- 웹 브라우저가 HTTP Request 메시지를 만들어서 WAS로 전송한다.
+- Request, Response 객체를 만들어서 싱글톤으로 생성된 servletTest 객체를 호출한다.
+- `service()` 메서드를 호출하면서 Request, Response 객체를 파라미터로 넘긴다.
+- `service()` 메서드 내의 로직을 실행하고 나갈 떄 WAS에서 Response 객체 정보를 기반으로 HTTP Response 메시지를 반들어서 반환한다.
+
+## HttpServletRequest
+HttpServletRequest 객체는 기본적으로 HTTP Request 메시지를 직접 파싱해야 하는 문제를 해결한다(생각만 해도 싫다). HTTP Request 메시지를 파싱한 결과가 HttpServletRequest 객체에 담겨 있다. 따라서 이 객체가 제공하는 메서드로 HTTP Request에 담긴 필요한 데이터를 조회할 수 있다.
+
+HTTP Request 메시지는 주로 3가지다.
+
+1. GET - Query Parmeter: Message Body 없음
+2. POST - HTML Form: Message Body에 Query Parameter 형식으로 데이터를 태움
+3. HTTP API(JSON, XML, TEXT): Message Body에 데이터를 직접 담아서 전송
+
+### GET, POST
+GET, POST 방식은 모두 parameter 형식으로 데이터를 전송한다. 데이터를 명시한 위치가 어딘지 다를 뿐이다. 따라서 서블릿에서는 `getParameter()`로 모두 조회가 가능하다.
+
+```java
+request.getParameterNames().asIterator()
+        .forEachRemaining(parameterName -> System.out.println(
+            parameterName + " = " + request.getParameter(parameterName)
+        ));
+```
+
+같은 이름으로 여러 개의 데이터가 넘어오는 경우에도 처리가 가능하다.
+`?username=user1&username=user2`로 요청을 보내더라도 배열로 데이터를 받을 수 있다. 그런데 이렇게 중복으로 데이터를 보내는 경우는 아직 본 적이 없음.
+
+```java
+String[] usernames = request.getParameterValues("username);
+String username = request.getParemeter("username");		// user1
+```
+
+서버 입장에서는 그 둘의 형식이 같다. 웹 브라우저에서 Content-Type을 만들 때 GET 방식이면 Message Body를 사용하지 않으므로 Content-Type이 없다(null). 반면 POST 방식으로 데이터를 전송하는 경우 Message Body에 데이터가 포함된다. 따라서 이 데이터가 어떤 형식인지 Content-Type을 반드시 지정해야 한다. HTML Form으로 데이터를 전송하는 것을 application/x-www-form-urlencoded라고 한다.
+
+
+### HTTP API
+HTTP Message Body에 데이터를 직접 담아서 전송하는 방식이다. TEXT, XML, JSON 형식으로 데이터를 전송할 수 있다.
+
+```java
+ServletInputStream inputStream = request.getInputStream();
+
+String s = StreamUtils.copyToString(inputStream, StandardCharsets.UTF_8);
+```
+기본적으로 바이트 코드로 Message Body의 내용을 받을 수 있다. 바이트코드를 읽어오는 Spring 제공 유틸 메서드로 바이트 코드를 스트링으로 변환했다.
+
+> 사실상 이제는 표준이 JSON 형식임.
+
+```json
+{
+    "username": "user1",
+    "age": 89
+}
+```
+
+이런 내용의 JSON 데이터를 Message Body에 태워서 전송하면 마찬가지로 바이트 코드로 데이터를 가져올 수 있다. 어차피 Message Body의 내용을 읽어들이는 것이기 때문에 데이터 형식이 JSON이라고 해서 읽어오는 부분 자체가 달라지는 것은 아니다. JSON도 문자이기 떄문에... 대신 Content-Type이 application/json이기 때문에 이 데이터 형식에 맞게 가공하면 된다. 가공은 라이브러리를 사용한다. 안 그러면 쌍따옴표 지옥에 갇히게 된다.
+
+당연히 application/x-www-form-urlencoded 데이터도 같은 방식으로 읽어올 수 있다. 하지만 getParameter()가 훨씬 편함.
+
+## HttpServletResponse
+HTTP Response 메시지를 생성한다.
+- Status Code
+- Header
+- Body
+
+추가적으로 Content-Type이나 Cookie, Redirect 등 몇 가지 Header 세팅을 좀 더 편하게 할 수 있다.
+
+```java
+// Status Line
+response.setStatus(200);
+response.setStatus(HttpServletResponse.SC_OK);
+
+// Headers
+response.setHeader("Content-Type", "text/plain;charset=utf-8");
+response.setContentType("text/plain");
+response.setCharacterEncodint("utf-8");
+response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+response.setHeader("Pragma", "no-cache");
+
+// Content Length
+response.setContentLength(2);	// 생략 시 자동 생성(보통 그냥 자동 생성하도록)
+
+// Set-Cookie: cookieName=coo; Max-Age=3600;
+response.setHeader("Set-Cookie", "cookieName=coo; Max-Age=3600");
+
+Cookie cookie = new Cookie("cookieName", "coo");
+cookie.setMaxAge(3600);	// 3600초
+response.addCookie(cookie);	// Expired는 WAS가 해준다 GMT로(스펙임)
+
+// Redirect
+// 302, Location: /redirect.html
+response.setStatus(HttpServletResponse.SC_FOUND);	// 302
+response.setHeader("Location", "/redirect.html");
+
+response.setRedirect("/redirect.html");
+
+// Message Body
+PrintWriter write = response.getWriter();
+write.println("ok");
+```
+
+HTTP Response 메시지는 주로 다음 내용을 담아서 전송하게 된다.
+
+1. TEXT
+2. HTML
+3. HTTP API
+
+### TEXT, HTML
+기본적으로 Content-Type을 지정해야 한다.
+
+```java
+// TEXT
+response.setContentType("text/plain");
+response.setCharacterEncodint("utf-8");
+PrintWriter write = response.getWriter();
+write.println("ok");
+
+// HTML
+response.setContentType("text/html");
+response.setCharacterEncodint("utf-8");
+```
+
+TEXT인 경우에는 text/plain을, HTML인 경우에는 text/html을 명시해야 하는데, 없어도 브라우저의 발전으로... 그냥 HTML을 잘 렌더링 해주긴 해서 신기했음. 그래도 있는 쪽이 나은 것 같다. 아직은.
+
+HTML의 경우 단순 TEXT와 달리 HTML 태그를 작성해야 한다. 물론 이것도 이미 Content-Type을 text/html로 명시했기 때문에 text/plain을 작성하듯
+
+```java
+PrintWriter write = response.getWriter();
+write.println("<html>");
+write.println("<body>");
+write.println("<h1>제목</h1>");
+write.println("</body>");
+write.println("</html>");
+```
+
+이렇게 작성해도 당연히 브라우저에서 의도한 대로 렌더링 한다. 하지만 이렇게 하면 안 되는 건 아니지만... 진짜 이렇게는 하고 싶지 않음. 이 문제는 템플릿 엔진으로 해결한다. JSP나 Thymeleaf가 이런 템플릿 엔진에 해당하는데, 근래에는 JSP는 거의 쓰지 않고 Thymeleaf를 많이 쓴다고 함. 왜냐면 HTML 구조를 깨지 않기 때문에 WAS 없이도 브라우저에서 그대로 동작한다. Thymeleaf의 동작 방식이 JSP와 달리 전용 문법을 쓰지 않고 HTML Element 안에 속성으로 값을 넣기 때문이다. 브라우저는 모르는 속성이므로 그냥 무시한다.
+
+
+### HTTP API
+Message Body에 JSON을 태워서 전송한다. 마찬가지로 Content-Type을 명시해야 한다.
+
+```java
+response.setContentType("application/json");
+response.setCharacterEncodint("utf-8");
+```
+보통은 자바에서 객체로 관리되는 데이터를 JSON 형태로 변환해서 전송하게 된다. Request Body의 데이터를 파싱해서 자바 객체로 만들어 사용했던 것과 같이 자바 객체를 Response Body에 JSON 형태로 태우기 위한 과정이 필요하다. 마찬가지로 라이브러리를 사용한다. JSON은 결국 문자열이고 라이브러리를 사용하지 않아도 어쨌든 문자열의 형태를 만들어줄 수 있으면 아무 문제 없긴 함(but).
+
+```java
+User user = new User();
+user.setUserName = "user1";
+user.setAge = 89;
+
+// {"username":"user1","age":89}
+ObjectMapper objectMapper = new ObjectMapper();
+String result = objectMapper.writeValueAsString(user);
+response.getWriter().write(result);
+
+```
+
+application/json은 스펙상 utf-8 형식을 사용하도록 정의되어 있다. Header에 `Content-Type: application/json;charset=utf-8` 이런 형태로 태우게 되면 의미없는 파라미터를 추가한 것이 된다. `response.getWriter()`를 사용하면 `response.setCharacterEncodint("utf-8");` 이 부분을 기준으로 자동 추가 되는 거라 `response.getOutputStream()`으로 출력하면 이런 부분을 지원하지 않으므로 그런 문제가 없다.
