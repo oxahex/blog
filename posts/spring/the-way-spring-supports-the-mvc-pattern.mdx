@@ -1,0 +1,324 @@
+---
+slug: the-way-spring-supports-the-mvc-pattern
+title: "스프링은 MVC 패턴을 어떻게 지원할까"
+description: "스프링에서는 MVC 패턴을 어떻게 지원하는지 궁금해서 공부"
+author: oxahex
+createdAt: 2023-10-13
+tags: ["spring"]
+---
+
+Spring MVC 역시 Front Controller 패턴과 Adapter 패턴을 구현하고 있다.
+
+## DispatcherServlet
+
+```java
+public class DispatcherServlet extends FrameworkServlet {}
+public abstract class FrameworkServlet extends HttpServletBean implements ApplicationContextAware {}
+public abstract class HttpServletBean extends HttpServlet implements EnvironmentCapable, EnvironmentAware {}
+```
+
+DispatcherServlet의 부모 클래스에서 HttpServlet을 상속 받아서 사용한다. 스프링 부트는 DispatcherServlet을 서블릿으로 자동 등록하면서 모든 경로(`urlPattern = "/"`)에 대해 매핑한다.
+
+스프링부트는 DispatcherServlet을 등록하면서 내장 Tomcat을 띄운다.
+
+서블릿이 호출되면 HttpServlet이 제공하는 `service()` 메서드가 호출된다. FrameworkServlet에 `service()` 메서드가 오버라이드 되어 있다. 여기서부터 메서드가 호출되면서 `DispatcherServlet.doDispatch()` 메서드가 호출된다.
+
+주요한 동작은 `doDispatch()` 메서드 내부에 구현되어 있다.
+
+### 핸들러 조회
+
+핸들러 매핑을 통해 URL에 매핑된 핸들러(컨트롤러)를 조회한다. 핸들러가 없으면 404를 던진다.
+
+```java
+// Determine handler for the current request.
+mappedHandler = getHandler(processedRequest);
+if (mappedHandler == null) {
+	noHandlerFound(processedRequest, response);
+    return;
+}
+```
+
+### 핸들러 어댑터 조회
+루프를 돌며 핸들러 어댑터를 찾는다.
+
+```java
+// Determine handler adapter for the current request.
+HandlerAdapter ha = getHandlerAdapter(mappedHandler.getHandler());
+```
+```java
+protected HandlerAdapter getHandlerAdapter(Object handler) throws ServletException {
+	if (this.handlerAdapters != null) {
+		for (HandlerAdapter adapter : this.handlerAdapters) {
+			if (adapter.supports(handler)) {
+				return adapter;
+			}
+		}
+	}
+	throw new ServletException("No adapter for handler [" + handler +
+			"]: The DispatcherServlet configuration needs to include a HandlerAdapter that supports this handler");
+}
+```
+
+스프링의 핸들러 어댑터 구현체도 `supports()`와 `handle()` 메서드를 갖는다.
+
+```java
+public interface HandlerAdapter {
+	boolean supports(Object handler);
+    @Nullable
+    ModelAndView handle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception;
+}
+```
+
+### 핸들러 어댑터 호출
+
+찾은 핸들러 어댑터로 실제 핸들러를 호출한다.
+핸들러 어댑터는 핸들러가 반환하는 데이터를 ModelAndView 객체로 변환해서 반환한다.
+
+```java
+// Actually invoke the handler.
+mv = ha.handle(processedRequest, response, mappedHandler.getHandler());
+```
+
+### 렌더링 로직 호출
+
+View Resolver를 호출한다.  `resolverViewName()` 메서드는 View의 논리 이름을 물리 이름으로 변환하고, 렌더링 역할을 담당하는 View 객체를 반환한다.
+
+```java
+processDispatchResult(processedRequest, response, mappedHandler, mv, dispatchException);
+
+// processDispatchResult 내부에서
+render(mv, request, response);
+```
+
+`render()` 메서드 내부의 동작은 이렇게 요약할 수 있다.
+
+```java
+protected void render(
+	ModelAndView mv,
+   	HttpServletRequest request,
+    HttpServletResponse response
+) throws Exception {
+
+    // View의 논리 이름
+    View view;
+    String viewName = mv.getViewName();
+
+    // View Resolver를 통해서 논리 이름으로 뷰를 찾고, View 객체 반환
+    view = resolverViewName(viewName, mv.getModelInternal(), locale, request);
+
+    // 뷰 렌더링
+    view.render(mv.getModelInternal(), request, response);
+}
+```
+
+이전에 버전을 올려가면서 Front Controller 패턴을 적용했던 것과 같이 Spring MVC 역시 Front Controller 역할을 하는 DispatcherServlet 코드의 변경 없이 원하는 기능을 변경, 추가할 수 있는 구조를 가지고 있다. 대부분의 것을 확장 가능한 인터페이스로 제공한다(HandlerMapping, HandlerAdapter, ViewResolver, View).
+
+
+## Handler Mapping
+
+현재 스프링은 Annotation 기반으로 동작한다. Annotation 이전에 스프링이 제공했던 Controller 인터페이스를 기반으로 컨트롤러를 구현했다.
+
+```java
+@Component("/old-controller")
+public class OldController implements Controller {
+
+    @Override
+    public ModelAndView handleRequest(
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws Exception {
+
+        System.out.println("OldController.handleRequest");
+        return null;
+    }
+}
+```
+
+이 컨트롤러는 `/old-controller` URL로 접근하면 호출된다. 이런 호출이 가능하려면 두 가지가 필요하다.
+
+우선 핸들러 매핑에서 이 컨트롤러(핸들러)를 찾을 수 있어야 한다. 지금은 @Component("/old-container") Annotation으로 빈에 컨트롤러 객체를 등록했다. 그러므로 스프링 빈의 이름으로 핸들러를 찾을 수 있는 핸들러 매핑이 필요하다.
+
+그리고 핸들러 매핑을 통해 찾은 핸들러를 실행할 수 있는 핸들러 어탭터가 있어야 한다. Controller 인터페이스의 구현체를 실행할 수 있는 어댑터를 찾을 수 있어야 한다.
+
+가장 먼저 Annotation 기반의 컨트롤러인 @RequestMapping() 컨트롤러를 찾는다(RequestMappingHandlerMapping). 그 다음으로 스프링 빈의 이름으로 등록된 핸들러를 찾는다(BeanNameUrlHandlerMapping).
+
+지금의 경우 첫 번째는 무시되고, 두 번째 방식으로 핸들러를 찾게 된다.
+
+## HandlerAdapter
+
+찾아온 핸들러를 처리할 수 있는 핸들러 어댑터를 찾는다. 마찬가지로 Annotation 기반의 핸들러를 처리할 수 있는 RequestMappingHandlerAdapter를 확인하고, 그 다음으로 HttpRequestHandler를 처리할 수 있는 HttpRequestHandlerAdapter를 확인한다. 이후에 Controller 인터페이스 기반의 핸들러를 지원하는 SimpleControllerHandlerAdapter를 확인한다.
+
+지금의 경우 마지막 세 번째 핸들러 어댑터를 사용하게 된다.
+
+```java
+@Override
+public boolean supports(Object handler) {
+	return (handler instanceof Controller);
+}
+```
+
+SimpleControllerHandlerAdapter 내부에 `supports()` 메서드를 보면 핸들러가 Controller 인터페이스의 구현체인 경우 이 어댑터를 사용할 수 있도록 되어 있다.
+
+`handle()` 메서드는 위에서 구현한 컨트롤러 객체의 `handleRequest()` 메서드를 실행한다.
+
+
+
+## View Resolver
+
+View Resolver는 기본적으로 논리 이름을 가지고 물리 위치로 변환해 리소스를 찾는다.
+
+```java
+@Component("/old-controller")
+public class OldController implements Controller {
+
+    @Override
+    public ModelAndView handleRequest(
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws Exception {
+
+        return new ModelAndView("join");
+    }
+}
+```
+
+Controller 인터페이스를 구현한 컨트롤러에서 ModelAndView 객체에 논리 이름을 태워서 반환했다. 이렇게 하면 `/old-controller` URL로 접근했을 때 404를 던지게 된다.
+
+현재는 내가 지정한 논리 이름에 해당하는 물리 위치를 View Resolver가 찾을 수 없다.
+
+스프링 부트는 InternalResourceViewResolver View Resolver를 자동으로 등록한다. 아래 코드의 결과와 동일하다.
+
+```java
+@Bean
+InternalResourceViewResolver internalResourceViewResolver() {
+	return new InternalResourceViewResolver("/WEB-INF", ".jsp");
+}
+```
+물론 저렇게 문자열을 바로 넣는 것이 아니라 자동 등록인 경우 application 설정 파일에 등록한 정보를 가지고 등록한다.
+
+```text
+// application.properties
+
+spring.mvc.view.prefix=/WEB-INF/views/
+spring.mvc.view.suffix=.jsp
+```
+
+그래서 이런 식으로 설정 정보를 등록하면, 위에서 구현한 컨트롤러가 제대로 동작한다.
+
+스프링 부트가 자동으로 등록하는 View Resolver 중 BeanNameViewResolver는 스프링 빈의 이름으로 뷰를 찾아서 반환한다. 현재는 등록한 스프링 빈이 없으므로 이 경우는 아니다.
+
+InternalResourceViewResolver는 JSP를 처리할 수 있는 뷰를 반환한다. 지금 호출되는 View Resolver가 이것이다.
+
+지금 정의한 viewName으로 View Resolver를 순서대로 호출하고, 해당하는 스프링 빈이 없으므로 InternalResourveViewResolver를 호출하게 된다. 이 View Resolver는 InternalResourceView를 반환하는데, 이 View는 JSP와 같이 forward() 처리를 할 수 있다.
+
+**JSTL 라이브러리가 포함되어 있으면 InternalResourceView를 상속한 JstlView를 반환한다.**
+
+Thymeleaf 뷰 템플릿을 사용하면 ThymeleafViewResolver를 등록해야 한다. 최근에는 Thymeleaf 라이브러리를 의존성에 추가하면 여기에 맞는 View Resolver가 등록되도록 자동화되어 있다.
+
+# Spring MVC
+## Annotation Controller
+
+### @RequestMapping
+
+스프링은 어노테이션 기반의 컨트롤러를 지원한다.
+
+이것도 결국은 이전에 Controller 인터페이스 구현한 컨트롤러와 같이 `@RequestMapping` 어노테이션이 붙은 컨트롤러(핸들러)를 지원하는 핸들러 매핑(RequestMappingHandlerMapping)과 핸들러 어댑터(RequestMappingHandlerAdapter)를 이용해 동작하게 된다.
+
+```java
+@Controller
+public class UserFormController {
+
+    @RequestMapping("/spring-mvc/users/join")
+    public ModelAndView process() {
+        return new ModelAndView("join");
+    }
+}
+```
+
+`@Controller` 어노테이션은 내부에 `@Component` 어노테이션이 있어서 ComponentScan의 대상이 된다. 자동으로 스프링 빈 등록이 된다.
+
+컨트롤러 메서드에 `@RequestMapping` 어노테이션을 붙이고 URL를 매핑하면, 해당 URL이 호출될 때 해당 메서드가 호출된다. 어노테이션 기반으로 동작하기 때문에 메서드 이름은 따로 규약이 없다.
+
+RequestMappingHandlerMapping은 스프링 빈 중에서 `@RequestMapping` 또는 `@Controller` 어노테이션이 클래스 레벨에 붙어있는 경우에 매핑 대상(핸들러)으로 인식한다.
+
+```java
+/**
+ * {@inheritDoc}
+ * <p>Expects a handler to have either a type-level @{@link Controller}
+ * annotation or a type-level @{@link RequestMapping} annotation.
+ */
+
+@Override
+protected boolean isHandler(Class<?> beanType) {
+	return (AnnotatedElementUtils.hasAnnotation(beanType, Controller.class) ||
+			AnnotatedElementUtils.hasAnnotation(beanType, RequestMapping.class));
+}
+```
+
+만약 어노테이션을 아래와 같이 붙이게 되면
+
+```java
+@Controller
+@RequestMapping("/spring-mvc/users/join")
+public class UserFormController {
+
+    public ModelAndView process() {
+        return new ModelAndView("join");
+    }
+}
+```
+
+RequestMappingHandlerMapping은 스프링 빈 중에서 클래스 레벨에 `@Controller`, `@RequestMapping` 어노테이션이 붙은 경우에만 매핑 대상(핸들러)으로 인식한다.
+
+그리고 찾은 핸들러(스프링 빈)에서 `@RequestMapping` 어노테이션이 붙은 메서드를 찾아 RequestMappingInfo 객체를 만든다. 이 객체에는 `@RequestMapping`에 정의된 URL, HTTP Method 정보 등이 담긴다.
+
+그 다음으로 RequestMappingHandlerMapping의 상위 추상 클래스인 AbstractHandlerMethodMapping의 mappingRegistry에 RequestMappingInfo, method, handler를 등록한다.
+
+위와 같이 어노테이션을 붙이는 경우에는 `@RequestMapping`이 메서드 레벨에 없기 때문에 RequestMappingInfo 객체를 만들지 못하고, 따라서 mappingRegistry에 등록되지 않는다. 여기에서 핸들러를 찾지 못하기 때문에 404가 떨어진다.
+
+
+`@RequestMapping` 어노테이션은 메서드 단위로 동작하기 때문에 하나의 클래스 내에 여러 메서드를 두는 방식으로 묶을 수 있다.
+
+
+### @RequestParam
+어노테이션 기반의 컨트롤러는 유연하게 설계되었기 때문에 HttpServletRequest, HttpServletResponse를 파라미터로 받을 수 있다. 아니면 중간 과정 없이 HTTP Request 파라미터를 바로 받을 수 있다.
+
+```java
+@RequestMapping("/save")
+public String save(
+	@RequestParam("username") String username,
+    @RequestParam("age") int age,
+    Model model
+) {
+	User user = new User(username, age);
+    userRepository.save(user);
+
+    model.addAttribute("user", user);
+
+    return "save-result";
+}
+```
+
+기본적으로 HTTP Request 파라미터는 String 타입인데, 이를 바로 타입 캐스팅할 수 있다.
+
+ModelAndView 대신 기존에 Front Controller나 Handler Adapter에서 Model 객체를 생성해 파라미터로 넘겨주었던 것과 같이 스프링에서 지원하는 Model 객체를 파라미터로 받아 데이터를 넘겨줄 수도 있다. 그러면 ModelAndView를 반환하지 않고 리소스의 논리 이름만 넘겨주는 방식으로 코드를 작성할 수 있다.
+
+### @GetMapping, @PostMapping
+
+현재까지는 HTTP Request 전송 방식을 구분하지 않았다.
+
+```java
+@RequestMapping(method = RequestMethod.GET)
+@RequestMapping(value = "/join", method = RequestMethod.POST)
+@RequestMapping(value = "/save", method = RequestMethod.GET)
+```
+
+이런식으로 전송 방식을 구분하면 지정한 방식 외에 다른 전송 방식으로 요청하지 않도록 제한할 수 있다.
+
+```java
+@GetMapping
+@PostMapping("/join")
+@GetMapping("/save")
+```
+
+이렇게 줄일 수 있다. 어노테이션 안쪽에 들어가보면 위와 같이 `method = RequestMethod.GET`으로 다시 어노테이션이 붙어 있는 것을 확인할 수 있었다.
