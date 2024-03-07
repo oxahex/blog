@@ -17,7 +17,12 @@ const config: GatsbyConfig = {
     "gatsby-plugin-sitemap",
     "gatsby-plugin-styled-components",
     "gatsby-plugin-react-helmet",
-    "gatsby-plugin-mdx",
+    {
+      resolve: "gatsby-plugin-mdx",
+      options: {
+        extensions: [".mdx", ".md", ".markdown"],
+      },
+    },
     {
       resolve: "gatsby-plugin-manifest",
       options: {
