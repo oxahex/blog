@@ -1,0 +1,279 @@
+---
+slug: dumb-down-react-3
+title: "React reconciliation 구현해보기"
+description: "React의 reconciliation 기능을 단순화하여 구현"
+author: oxahex
+createdAt: 2022-01-18
+tags: ["react"]
+---
+
+Reconciliation을 구현하기 전에 `workLoop()`와 `doNextWork()`를 변경했다.
+변경 목적은 전체 트리 렌더링이 완료되기 전에 브라우저가 작업을 방해할 수 없도록 하는 것이다. 하나의 트리가 모두 만들어지면(다음 work 없음) 그 때 한 번에 전체 fiber 트리를 DOM에 집어 넣는다.
+
+```javascript
+function doNextWork(fiber) {
+
+    // ...
+
+  if (fiber.parent) {
+      fiber.parent.dom.appendChild(fiber.dom);
+  }
+
+    // ...
+}
+```
+기존에는 doNextWork 함수 내부에서 작업 중간에 parent node가 존재하는 경우 child를 parent에 append 처리 했는데, 이 부분을 제거했다. doNextWork 함수에서는 노드를 추가하는 작업을 하지 않도록 변경했다. `doNextWork()` 함수는 이제 `workLoop()`에서 매 루프마다 특정 조건을 확인하고 조건에 부합하면 완성된 fiber tree를 한꺼번에 DOM에 append 한다.
+
+```javascript
+function workLoop(deadline) {
+  let shouldYield = false;
+  while (nextWork && !shouldYield) {
+    nextWork = doNextWork(nextWork);
+    shouldYield = deadline.timeRemaining() < 1;
+  }
+
+  if (!nextWork && progressWork) commitFiber();    // append
+
+  requestIdleCallback(workLoop);
+}
+```
+
+## commitFiber
+commitFiber 함수는 완성된 fiber tree를 전체 append 하는 역할을 한다.
+
+commitFiber 함수를 실행하기 위한 조건은 전체 fiber tree가 완성되는 것이다. 완성 여부를 판단하기 위해서는 남아있는 작업(child, sibling), fiber tree가 존재하는지 알아야 한다. 남아있는 작업이 더 이상 없고, fiber tree가 존재하면 DOM에 전체 fiber tree를 append 할 수 있다.
+
+commitFiber에서 하는 일은 단순하다.
+
+progressWork의 child 존재 여부를 검사하고, child의 parentNode에 child와 sibling을 append 한다. 이 작업을 commitWork 함수로 묶었다.
+
+```javascript
+function commitFiber() {
+  commitWork(progressWork.child);
+  progressWork = null;
+}
+function commitWork(fiber) {
+  if (!fiber) return;
+  const parentNode = fiber.parent.dom;
+  parentNode.appendChild(fiber.dom);
+  commitWork(fiber.child);
+  commitWork(fiber.sibling);
+}
+```
+
+`commitWork()` 함수는 재귀적으로 동작하고, 현재 작업 중인 트리를 순차적으로 돌며 child, sibling 노드가 존재할 때만 작업을 한다. `parent && child`, `parent && sibling` 조건을 만족하면 append 작업을 진행하도록 했다.
+
+## Reconciliation
+
+DOM에 node를 추가하는 작업 외에 node를 제거하거나 변경해야 하는 경우도 있다. React에서는 이 작업을 Diffing Algorithm으로 해결하는데, 이 알고리즘은 빠른 속도로 구성 요소의 업데이트를 예측할 수 있도록 한다.
+
+React에서 Diffing 알고리즘을 구현할 때 가정했던 두 가지는 다음과 같다.
+
+1. 서로 다른 타입의 두 Element는 서로 다른 트리를 만들어낸다.
+2. 개발자가 key prop을 통해 여러 렌더링 사이에서 어떤 Child Element가 변경되지 않아야 하는지 표시할 수 있다.
+
+React에서는 두 개의 트리를 비교할 때, 두 Element의 Root Element 부터 비교한다. 이후의 동작은 Root Element의 타입에 따라 달라진다.
+
+Element 타입이 다른 경우, React는 이전의 트리를 버리고 완전히 새로운 트리를 구축한다. 즉 루트가 다르면 자식이 같더라도 전체를 재구축한다. 이 경우 Root Element 하위의 모든 컴포넌트가 언마운트 되고 state도 제거된다.
+
+DOM Element의 타입이 같은 경우, 두 Element의 속성을 비교하여 동일한 내역은 유지하고 변경된 속성만 갱신한다.
+
+React는 DOM Node의 child를 재귀적으로 처리할 때 동시에 두 리스트를 순회하고 차이점이 있으면 변경한다.
+그래서 child의 끝에 Element를 추가하면 두 트리 사이의 변경은 잘 동작한다. 반면 리스트의 맨 앞에 Element를 추가하면 성능이 좋지 않다. 이 경우 모든 child를 변경하기 때문이다.
+
+이 문제를 해결하기 위해 React는 key 속성을 지원한다. 자식들이 key를 가지고 있다면 React는 key를 통해 기존 트리와 이후 트리의 자식이 일치하는지 확인할 수 있다. key는 형제 사이에서만 유일하면 되고, 전역에서 유일할 필요는 없다.
+
+따라서 배열의 index를 key로 사용하는 것은 좋지 않다. 항목의 순서가 바뀌는 경우 key도 변경되므로 고정적이지 않기 때문이다.
+
+키워드는 비교다. 무엇을 비교해야 하는가? 기존의 트리와 변경된 트리를 비교해야 한다. 그러기 위해서는 `commitFiber()` 함수 내부에서 `commitWork()` 함수를 호출한 다음 기존 트리를 다른 변수에 할당해둔다.
+
+```javascript
+let currentWork = null;
+
+function commitFiber() {
+  commitWork(progressWork.child);
+  currentWork = progressWork;
+  progressWork = null;
+}
+```
+
+currentWork 변수에 progressWork를 할당했다. 그리고 나서 progressWork를 null로 재정의했다. currentWork는 DOM에 commit한 마지막 트리이고, render가 종료되더라도 이 값은 남아있게 된다. 처음 render 하는 경우 `currentWork === null` 이다.
+
+currentWork와 비교하려면 render 함수 내에서 fiber를 생성할 때 currentWork를 fiber의 속성으로 설정해야 한다.
+
+```javascript
+function render(element, container) {
+  progressWork = {
+    dom: container,
+    props: {
+      children: [element],
+    },
+    alternate: currentWork,
+  };
+
+  nextWork = progressWork;
+}
+```
+
+alternate 속성을 새로 생성하고 여기에 currentWork를 할당한다. 그러면 progressWork라는 하나의 작업 단위는 변경되기 이전의 형태를 들고 있게 된다.
+
+남은 것은 이 currentWork와 progressWork를 비교해 필요한 작업을 하는 것이다. 이 작업을 하는 함수는 `reconcileChildren()` 함수로 분리했다. 물론 기존에 `doNextWork()` 함수에서 하던 작업이 새로운 함수에 포함된다.
+
+```javascript
+function doNextWork(fiber) {
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber);
+  }
+
+  const elements = fiber.props.children;
+
+  reconcileChildren(fiber, elements);
+
+  if (fiber.child) {
+    return fiber.child;
+  }
+  let nextFiber = fiber;
+  while (nextFiber) {
+    if (nextFiber.sibling) {
+      return nextFiber.sibling;
+    }
+    nextFiber = nextFiber.parent;
+  }
+}
+```
+
+`reconfileChildren()` 함수의 역할은 React가 트리를 비교하는 것과 유사하다.
+
+```javascript
+const sameType = oldFiber && element && element.type === oldFiber.type;
+
+if (sameType) {
+    newFiber = {
+        type: oldFiber.type,
+        props: element.props,
+        dom: oldFiber.dom,
+        parent: progressWork,
+        alternate: oldFiber,
+        tag: "UPDATE",
+    };
+}
+
+if (element && !sameType) {
+    newFiber = {
+        type: element.type,
+        props: element.props,
+        dom: null,
+        parent: progressWork,
+        alternate: null,
+        tag: "PLACEMENT",
+    };
+}
+
+if (oldFiber && !sameType) {
+    oldFiber.tag = "DELETION";
+    deleteList.push(oldFiber);
+}
+```
+
+이후 각각의 newFiber를 식별하기 위해 케이스마다 tag를 지정했다.
+
+1. oldFiber와 elements가 같은 타입이라면 DOM Node를 유지하고 새로운 props로 변경한다.
+2. Element가 존재하나 타입이 다른 경우, 새로운 요소가 있다면 새로운 DOM Node를 추가한다.
+3. oldFiber가 존재하나 타입이 다른 경우, newFiber를 만들 필요가 없다. newFiber 대신 기존의 oldFiber에 tag를 추가하고 deleteList를 만들어 제거해야 하는 oldFiber를 이 리스트에 추가한다.
+
+```javascript
+let deletions = null;
+
+function render(element, container) {
+  progressWork = {
+    dom: container,
+    props: {
+      children: [element],
+    },
+    alternate: currentWork,
+  };
+  deletions = [];
+  nextWork = progressWork;
+}
+```
+
+```javascript
+function commitFiber() {
+  deletions.forEach(commitWork);
+  commitWork(progressWork.child);
+  currentWork = progressWork;
+  progressWork = null;
+}
+```
+
+그리고 DOM에 트리를 추가하면서 deleteList 역시 각각의 데이터를 `commitWork()` 함수에 파라미터로 넘긴다.
+
+`commitWork()`에서 해야 할 일은 기존에 각 newFiber를 구분하기 위해 생성한 tag를 기준으로 각기 다른 작업을 수행하는 것이다.
+
+```javascript
+function commitWork(fiber) {
+  if (!fiber) return;
+
+  const parentNode = fiber.parent.dom;
+
+  if (fiber.tag === "PLACEMENT" && fiber.dom !== null) {
+    parentNode.appendChild(fiber.dom);
+  } else if (fiber.tag === "DELETION") {
+    parentNode.removeChild(fiber.dom);
+  } else if (fiber.tag === "UPDATE" && fiber.dom !== null) {
+    updateDom(fiber.dom, fiber.alternate.props, fiber.props);
+  }
+
+  commitWork(fiber.child);
+  commitWork(fiber.sibling);
+}
+```
+
+마지막 `fiber.tag`가 UPDATE인 경우, 기존 DOM을 사용하되 변경된 속성으로 교체해야 한다. 그 작업을 하는 함수인 `updateDOM()`을 생성했다. 이 함수에서는 두 fiber를 비교하여 없어진 props를 제거하고, 새로 생기거나 변경된 props를 다시 세팅한다.
+
+이건 이전에 `createDOM()` 함수에서 구현했던 부분과 거의 동일했다.
+
+```javascript
+const isEvent = (key) => key.startsWith("on");
+const isProperty = (key) => key !== "children" && !isEvent(key);
+const isNew = (prev, next) => (key) => prev[key] !== next[key];
+const isOld = (prev, next) => (key) => !(key in next);
+function updateDom(dom, prevProps, nextProps) {
+  // Remove old, changed event
+  Object.keys(prevProps)
+    .filter(isEvent)
+    .filter((key) => !(keu in nextProps) || isNew(prevProps, nextProps)(key))
+    .forEach((key) => {
+      const eventType = key.toLowerCase().substring(2);
+      dom.removeEventListener(eventType, prevProps[key]);
+    });
+
+  // Remove old properties
+  Object.keys(prevProps)
+    .filter(isProperty)
+    .filter(isOld(prevProps, nextProps))
+    .forEach((key) => (dom[key] = ""));
+
+  // Set new, changed properties
+  Object.keys(nextProps)
+    .filter(isProperty)
+    .filter(isNew(prevProps, nextProps))
+    .forEach((key) => {
+      dom[key] = nextProps[key];
+    });
+
+  // Add new event
+  Object.keys(nextProps)
+    .filter(isNew(prevProps, nextProps))
+    .forEach((key) => {
+      const eventType = name.toLowerCase().substring(2);
+      dom.addEventListener(eventType, nextProps[key]);
+    });
+}
+```
+
+---
+
+[Dumb Down React 작업 링크](https://github.com/oxahex/dumb-down-react)
+
+
