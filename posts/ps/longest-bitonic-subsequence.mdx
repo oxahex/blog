@@ -1,0 +1,105 @@
+---
+slug: longest-bitonic-subsequence
+title: "가장 긴 바이토닉 부분 수열"
+description: "DP를 이해하게 된 문제"
+author: oxahex
+createdAt: 2023-10-02
+tags: ["ps"]
+---
+
+## 문제 설명
+길이가 N인 수열 S가 어떤 수 S[k]를 기준으로 다음을 만족할 때, 이를 바이토닉 수열이라고 한다.
+
+```text
+S[1] < S[2] < ... S[k-1] < S[k] > S[k+1] > ... S[N-1] > S[N]
+```
+수열 A가 주어졌을 때, 그 수열의 부분 수열 중 바이토닉 수열이면서 가장 긴 수열의 길이를 구하라.
+첫째 줄에 수열 A의 크기가 주어지고, 둘째 줄에는 수열 A를 이루고 있는 A[i]가 주어진다.
+
+
+
+## 제한 사항
+1. <= N <= 1,000
+2. <= A[i] <= 1,000
+
+## 접근
+문제에서 말한 바이토닉 수열은 수열 S의 특정한 수 S[k]가 부분 수열 내의 피크값인 경우를 말한다.
+S[k]를 기준으로 좌측은 S[k]까지 단조 증가, 우측은 S[k]부터 단조 감소하기 때문에 이 문제는 S[k]까지 가장 긴 증가하는 부분 수열과 S[k]부터 가장 긴 감소하는 부분 수열을 구하는 것에서 출발해야 한다는 생각이 들었다.
+
+증가 또는 감소하는 부분 수열의 길이를 배열에 메모한다면(DP), 각 DP[i]는 무엇을 의미하는지 명확하게 하고 넘어가야 할 것 같다.
+
+수열 S에서 가장 긴 증가하는 부분 수열을 구하려면, DP를 이용해서 현재 탐색하는 수 S[i] 이전의 값(S[i - 1] ~ S[0])을 탐색하고, S[i]보다 작은 값이 있는 경우, 그 작은 값의 DP 값 중 최댓값을 찾아 1을 더한다. 그 값이 DP[i]의 값이 된다.
+
+```text
+S[i] 	= 1 5 2 1 4 3 4 5 2 1
+DP[i]	= 1 2 2 1 3 3 4 5 2 1
+```
+이 때 DP[i]가 의미하는 것은 S[0] ~ S[i]의 범위에서 i로 끝나는 증가 수열의 길이가 된다.
+DP[7]은 S[0] ~ S[7] 까지의 범위에서 S[7]을 마지막 값으로 하는 가장 긴 증가 수열의 길이다. (1, 2, 3, 4, 5)
+다르게 말하면 해당 범위 내에서 S[i]가 몇 번째로 큰지를 의미하기도 한다.
+
+여기서 '해당 범위 내에서'가 중요하다고 생각했다. 그러면 바이토닉 수열에서의 단조 증가 범위를 구할 수 있기 때문이다. 각 DP[i]는 수열 S에서 S[i]까지 단조 증가하는 부분 수열의 길이가 된다.
+
+그러면 반대로 바이토닉 수열에서 단조 감소하는 부분도 비슷한 원리로 구할 수 있다. 5, 4, 3, 2, 1로 감소한다는 것은 뒤에서부터 탐색했을 때 1, 2, 3, 4, 5로 증가하는 것과 같다. 그러므로 뒤에서부터 S[i]의 증가하는 부분 수열의 최대 길이를 계산하면 S[i]가 뒤에서부터 몇 번째로 큰 수인지 알 수 있다.
+
+```text
+S[i] 	= 1 5 2 1 4 3 4 5 2 1
+DP_I[i] = 1 2 2 1 3 3 4 5 2 1
+DP_D[i] = 1 5 2 1 4 3 3 3 2 1
+```
+결과적으로 DP_I[i]와 DP_D[i]를 더한 값은 S[0] ~ S[i] 범위 내에서 S[i]까지 단조 증가한 부분 수열의 최대 길이와 S[i] ~ S[N-1] 범위 내에서 S[i] 부터 단조 감소한 부분 수열의 최대 길이를 더한 값이 된다.
+
+따라서 DP_I[i] + DP_D[i]의 합이 가장 큰 부분이 가장 긴 바이토닉 부분 수열의 피크 값이 되고, 이 피크 값은 두 번 중복으로 더해졌기 때문에 1을 빼주면 문제에서 원하는 답을 구할 수 있다.
+
+## 코드
+
+```java
+public class BOJ_11054 {
+
+	static int[] S;
+	static int[] DP_I; // 증가
+  static int[] DP_D;// 감소
+
+  public static void main(String[] args) throws IOException {
+
+		BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+
+		int N = Integer.parseInt(br.readLine());
+		S = new int[N];
+		DP_I = new int[N];
+		DP_D = new int[N];
+
+		StringTokenizer st = new StringTokenizer(br.readLine());
+
+		// 수열을 배열 S에 할당
+    for (int i = 0; i < N; i++) {
+			S[i] = Integer.parseInt(st.nextToken());
+		}
+
+    // 오름차순
+    for (int i = 0; i < N; i++) {
+			int max = 0;
+			for (int j = 0; j < i; j++) {
+				if (S[i] > S[j]) max = Math.max(max, DP_I[j]);
+			}
+			DP_I[i] = max + 1;
+		}
+
+		// 수열을 역순으로 탐색한 오름차순
+    for (int i = N - 1; i >= 0; i--) {
+			int max = 0;
+			for (int j = N - 1; j >= i; j--) {
+				if (S[i] > S[j]) max = Math.max(max, DP_D[j]);
+			}
+			DP_D[i] = max + 1;
+		}
+
+		int max = 0;
+		for (int i = 0; i < N; i++) {
+			max = Math.max(max, DP_I[i] + DP_D[i]);
+		}
+
+		System.out.println(max - 1);
+	}
+}
+```
