@@ -20,7 +20,14 @@ const config: GatsbyConfig = {
     {
       resolve: "gatsby-plugin-mdx",
       options: {
-        extensions: [".mdx", ".md", ".markdown"],
+        gatsbyRemarkPlugins: [
+          {
+            resolve: "gatsby-remark-images",
+            options: {
+              maxWidth: 1000,
+            },
+          },
+        ],
       },
     },
     {
@@ -48,14 +55,6 @@ const config: GatsbyConfig = {
         name: "categories",
         path: path.resolve(__dirname, "./posts/"),
       },
-    },
-    {
-      resolve: "gatsby-source-filesystem",
-      options: {
-        name: "images",
-        path: "./src/images/",
-      },
-      __key: "images",
     },
     {
       resolve: "gatsby-source-filesystem",
