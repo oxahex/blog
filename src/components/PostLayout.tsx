@@ -55,15 +55,15 @@ const conponents = {
       as="p"
       fontSize="0.8rem"
       lineHeight="1.7"
-      padding={{ base: "0 0 0.4rem 0" }}
+      padding={{ base: "0 0 0.5rem 0" }}
       {...props}
     />
   ),
   ol: (props: BoxProps) => (
-    <Box as="ol" fontSize="0.8rem" listStype="inside" {...props} />
+    <Box as="ol" fontSize="0.8rem" listStype="inside" padding={{ base: "0 0 0.5rem 0" }} {...props} />
   ),
   ul: (props: BoxProps) => (
-    <Box as="ul" fontSize="0.8rem" listStype="inside" {...props} />
+    <Box as="ul" fontSize="0.8rem" listStype="inside" padding={{ base: "0 0 0.5rem 0" }} {...props} />
   ),
   li: (props: BoxProps) => (
     <Box
