@@ -146,6 +146,7 @@ public boolean equals(Object obj) {
 따라서 Optional 클래스는 내부의 value를 기준으로 비교한다는 것을 알 수 있었다.
 
 > JDK 16부터 패턴 매칭을 지원한다.
+>
 > 따라서 if문 내부에서 명시적으로 타입 캐스팅을 하지 않아도 other에 Optional로 감싼 obj 객체가 할당된다.
 
 
@@ -263,8 +264,3 @@ public T orElseGet(Supplier<? extends T> supplier) {
 `orElseThrow()` 메서드는 값이 없는 경우 예외 처리를 위한 메서드다. 마찬가지로 파라미터가 없는 `orElseThrow()` 메서드는 Optional 클래스 내부에서 명시된 `new NoSuchElementException(“No value present”);` 라인이 동작한다. Supplier의 구현체를 메서드로 받는 `orElseThrow()` 메서드는 값이 없는 시점에 던져야 하는 예외를 파라미터로 받는다. 역시 지연평가 되므로 실제로 값이 없는 경우에만 해당 예외를 던질 수 있다.
 
 이런 이유였다. 이제 알겠다. 너무 재밌다.
-
-
-
-
-#blog

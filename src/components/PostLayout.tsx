@@ -1,10 +1,12 @@
 import React from "react";
-import styled from "styled-components";
 import CodeBlock from "./CodeBlock";
 import { MDXProvider } from "@mdx-js/react";
 import {
   Box,
   BoxProps,
+  Card,
+  ComponentDefaultProps,
+  Flex,
   Heading,
   HeadingProps,
   Text,
@@ -17,7 +19,7 @@ interface ArticleProps {
   children: React.ReactNode;
 }
 
-const conponents = {
+const components = {
   h1: (props: HeadingProps) => (
     <Heading
       as="h1"
@@ -60,10 +62,22 @@ const conponents = {
     />
   ),
   ol: (props: BoxProps) => (
-    <Box as="ol" fontSize="0.8rem" listStype="inside" padding={{ base: "0 0 0.5rem 0" }} {...props} />
+    <Box
+      as="ol"
+      fontSize="0.8rem"
+      listStype="inside"
+      padding={{ base: "0 0 0.5rem 0" }}
+      {...props}
+    />
   ),
   ul: (props: BoxProps) => (
-    <Box as="ul" fontSize="0.8rem" listStype="inside" padding={{ base: "0 0 0.5rem 0" }} {...props} />
+    <Box
+      as="ul"
+      fontSize="0.8rem"
+      listStype="inside"
+      padding={{ base: "0 0 0.5rem 0" }}
+      {...props}
+    />
   ),
   li: (props: BoxProps) => (
     <Box
@@ -82,11 +96,20 @@ const conponents = {
     />
   ),
   code: CodeBlock,
+  blockquote: (props: ComponentDefaultProps) => (
+    <Card
+      as="blockquote"
+      margin={{ base: "0.5rem 0" }}
+      padding={{ base: "1rem" }}
+      color="#5d5d5d"
+      {...props}
+    />
+  ),
 };
 
 const PostLayout: React.FC<ArticleProps> = ({ children }: ArticleProps) => {
   return (
-    <MDXProvider components={conponents as any}>
+    <MDXProvider components={components as any}>
       <Header />
       <Box
         as="main"
@@ -107,9 +130,5 @@ const PostLayout: React.FC<ArticleProps> = ({ children }: ArticleProps) => {
     </MDXProvider>
   );
 };
-
-const Section = styled.section`
-  padding: 1rem;
-`;
 
 export default PostLayout;
