@@ -1,0 +1,270 @@
+---
+slug: java-optional
+title: "Java Optional"
+description: "Java Optional 클래스가 해결하는 문제와 각 메서드의 역할 및 동작 원리"
+author: oxahex
+createdAt: 2024-03-10
+tags: ["spring"]
+---
+
+개인 프로젝트를 하다가 아래와 같은 코드를 작성했다.
+
+```java
+// Email, Provider로 기존 유저 조회, 없으면 새 유저 생성
+User user = userRepository.findOAuthUser(email, providerType)
+  .orElse(createOAuthUser(oAuth2User, providerType));
+```
+
+기대하는 동작은 아래 쿼리를 전송해서 registrationId와 email 조건을 만족하는 기존 유저를 조회하고, 없는 경우 새로운 유저를 생성하는 것이었다.
+
+```sql
+SELECT * FROM user
+WHERE email = 'user@gmail.com' AND provider = 'GOOGLE';
+```
+
+그러나 RDB에 일치하는 데이터가 있음에도 `orEles()` 메서드가 실행되었다. 디버깅을 하면서 오류 원인을 좁혀갔다.
+
+- email 또는 providerType 값이 null인 경우
+- ENUM인 providerType으로 조회 조건을 지정했으나 제대로 매핑되지 않아 실제 쿼리에 오류가 있는 경우
+
+디버깅 결과 어떤 케이스에도 해당하지 않았고, 그제야 내가 `orElseGet()` 대신 `orElse()` 메서드를 사용했다는 것을 알게 됐다.
+
+```java
+// Email, Provider로 기존 유저 조회, 없으면 새 유저 생성
+User user = userRepository.findOAuthUser(email, providerType)
+  .orElseGet(() -> createOAuthUser(oAuth2User, providerType));
+```
+
+IDE를 사용하다 보니 메서드 앞 몇 글자만 작성하고 나머지는 추천 메서드 중에서 고르는 식으로 코드를 작성하다보니 별 생각 없이 `orElseGet()` 메서드를 호출하고 있다고 생각했다. 그래서 내가 메서드를 잘못 작성했을 가능성은 애초에 생각하지 않았다.
+
+생각해보니 나는 Optional을 단순히 NPE 방지를 위해 추가된 Wrapper 클래스 정도로 알고 있었다. Optional 클래스의 메서드도 각각의 기능 정도만 알고 있었지, 각 메서드가 어떤 문제를 해결하기 위한 고민의 결과물인지는 잘 모르고 있었다.
+
+아래 이어지는 내용은 Optional 클래스가 어떤 식으로 NPE를 방지하는지 구현 코드를 살펴본 결과를 기록한 것이다.
+
+## NPE
+가장 먼저 든 의문은 이렇다. 왜 JAVA는 NPE가 잦을까?
+애초에 Java에서 NPE가 발생하는 이유는 보통 객체가 할당되지 않은 상태(null)일 때 객체의 메서드나 속성을 사용하려 하는 경우 발생한다. 이 때 객체가 할당되지 않은 상태란 객체가 null 값을 참조하고 있다는 것을 의미한다.
+
+만약 변수의 타입이 boolean이나 char, long과 같은 primitive 타입이라면 값을 할당하지 않더라도 false, ‘\u0000’, 0 등으로 초기화된다. 반면 reference 타입인 String의 경우를 예시로 들면,
+
+```java
+String s = "Java";
+```
+
+할당하려는 문자열 리터럴이 상수 풀에 존재하면 이미 존재하는 객체를 참조한다. 만약 상수 풀에 해당 문자열 리터럴을 값으로 가지는 String 객체가 없으면 새로 생성하고, 이를 상수 풀에 저장한다. 상수 풀은 Heap 영역에 위치한다.
+
+따라서 Java에서 어떤 객체가 null이라는 것은 결국 객체가 뭔가를 참조하고 있지 않다는 것이다.
+
+NPE는 다른 언어에서도. 분명히 존재하는 예외지만, Java의 경우 모든 객체에 null을 할당할 수 있기 때문에 NPE가 발생할 가능성이 높아진다. 물론 객체에 기본적으로 null을 할당할 수 있는 언어는  많지만, Java의 경우 null 체크를 강제하지 않기 때문에 개발자가 NPE를 염두에 두고 작업하지 않으면 NPE 확률이 올라간다. 상속이나 다형성의 영향도 있다. 부모 클래스나 인터페이스 타입의 변수가 자식 클래스의 인스턴스를 참조할 때 자식 클래스가 null인 경우 NPE가 발생할 수 있다.
+
+
+## Optional
+Optional 클래스 주석을 보면, Optional 클래스를 값 기반 클래스(Value-based class)라고 표현하고 있었다. 따라서 `equals()` 메서드로 동등성을 확인할 때 값이 동일하면 동일한 객체로 간주된다. 값 기반 클래스의 특성상 Optional 클래스는 불변성을 가진다.
+
+```java
+public final class Optional<T> {
+	private static final Optional<?> EMPTY = new Optional<>(null);
+    private final T value;
+
+    public static<T> Optional<T> empty() {
+        @SuppressWarnings("unchecked")
+        Optional<T> t = (Optional<T>) EMPTY;
+        return t;
+    }
+
+    private Optional(T value) {
+        this.value = value;
+    }
+
+	// ...
+}
+```
+
+### 생성
+Optional 객체는 내부에 저장될 값을 `private final T value;` 필드에 저장한다. 생성자를 보면 private로 선언되어 있다. 따라서 외부에서 `new Optional()`과 같은 형태로 Optional 인스턴스를 생성할 수 없다. 대신 `of()` 메서드를 통해 값을 할당하며 인스턴스를 생성할 수 있고 이 값은 변하지 않는다. 그런 의미에서 Optional 객체는 값 기반 클래스이며 불변성을 가진다고 하는 것이다.
+
+```java
+public static <T> Optional<T> of(T value) {
+    return new Optional<>(Objects.requireNonNull(value));
+}
+```
+
+Optional 인스턴스를 생성할 때 value 값이 null인 경우에는 `of()` 메서드로 인스턴스를 생성할 수 없다. 이 경우 내부적으로 NPE가 터진다. 만약 인스턴스에 null을 할당해야 한다면 `ofNullable()` 메서드로 인스턴스를 생성해야 한다.
+
+```java
+public static <T> Optional<T> ofNullable(T value) {
+    return value == null ? (Optional<T>) EMPTY
+                         : new Optional<>(value);
+}
+```
+
+`ofNullable()` 메서드는 내부적으로 null 값이 들어오는 경우 static으로 선언된 EMPTY 값을 할당하고, 값이 null이 아닌 경우 생성자를 사용해 인스턴스를 생성한다.
+
+반드시 null이 할당되는 경우에는 `empty()` 메서드로 인스턴스를 생성할 수 있다.
+
+```java
+public static<T> Optional<T> empty() {
+    Optional<T> t = (Optional<T>) EMPTY;
+    return t;
+}
+```
+
+이 경우 역시 클래스 필드에서 static으로 선언한 EMPTY 값이 할당된다.
+
+```java
+public final class Optional<T> {
+	private static final Optional<?> EMPTY = new Optional<>(null);
+    private final T value;
+
+	// ...
+}
+```
+
+이렇게 하는 이유는 static 변수로 EMPTY 객체를 미리 생성해서 가지고 있으면, 빈 객체를 여러 번 생성하게 되더라도 1개의 EMPTY 객체를 공유하게 되므로 메모리를 절약할 수 있다.
+
+이렇게 메서드를 분리하면 인스턴스 생성 시 절대 null이 아닌 케이스와 null일 수도 있는 케이스를 명확히 구분할 수 있다. 또 `of()` 메서드로 인스턴스를 생성하는 경우에는 반드시 null이 아닌 값을 넘겨야 하기 때문에 실수로 null이 할당되는 경우를 방지할 수 있을 것이다.
+
+따라서 Optional 클래스에 내부적으로 value를 저장하도록 객체를 한 번 감싸기 때문에 value가 null이더라도 Optional로 감싼 객체를 참조할 때 NPE가 발생하지 않는다.
+
+### 비교
+두 Optional 클래스의 동등 비교는 `equals()` 메서드를 통해 가능하다.
+
+```java
+@Override
+public boolean equals(Object obj) {
+    if (this == obj) {
+        return true;
+    }
+
+    return obj instanceof Optional<?> other
+            && Objects.equals(value, other.value);
+}
+```
+
+두 경우를 비교하는데, 하나는 Optional 클래스의 value가 참조하는 메모리 주소가 비교 대상인 obj 객체가 참조하는 메모리 주소와 같은지 확인한다. 참조하는 메모리 주소가 같으면 두 객체가 동등하다고 본다. 만약 이 조건을 통과하지 못하는 경우에는 obj가 Optional 클래스의 인스턴스인지 확인한다. obj가 Optional 클래스의 인스턴스라면 other 변수에 obj를 캐스팅하고 다시 `equal()` 메서드를 호출해 비교한다.
+
+따라서 Optional 클래스는 내부의 value를 기준으로 비교한다는 것을 알 수 있었다.
+
+> JDK 16부터 패턴 매칭을 지원한다.
+> 따라서 if문 내부에서 명시적으로 타입 캐스팅을 하지 않아도 other에 Optional로 감싼 obj 객체가 할당된다.
+
+
+### 존재 여부
+Optional 클래스는 value가 null일 가능성이 있으므로 이로 인한 NPE를 방지하는 것이 주된 목적이다. 따라서 value가 null인지 아닌지 확인하는 메서드를 지원한다.
+
+```java
+public final class Optional<T> {
+	private static final Optional<?> EMPTY = new Optional<>(null);
+    private final T value;
+
+    // ...
+
+	public boolean isPresent() {...}
+	public void ifPresent(Consumer<? super T> action) {...}
+	public void ifPresentOrElse(Consumer<? super T> action, Runnable emptyAction) {...}
+
+	// ...
+}
+```
+
+`isPresent()` 메서드는 단순히 `value != null`을 검사한다.
+
+`ifPresent()`는 내부적으로 `value != null`을 검사하고, 그 이후 `action.accept(value)` 메서드를 실행한다. 여기서 action은 파라미터로 넘어온 Consumer 인터페이스의 구현체다. Consumer 인터페이스는 제네릭 타입의 매개변수를 전달 받아 특정 작업을 수행하는 경우 사용되는데, 인터페이스 이름이 왜 Consumer인지 궁금해서 찾아보니 데이터(매개변수)를 사용할 뿐 아무것도 생성하거나 반환하지 않기 때문이라는 것을 알게 되었다. 따라서 매개변수는 있으나 반환 타입은 없다.
+
+```java
+public interface Consumer<T> {
+
+	void accept(T t);
+
+	default Consumer<T> andThen(Consumer<? super T> after) {
+		Objects.requireNonNull(after);
+		return (T t) -> { accept(t); after.accept(t); };
+	}
+}
+```
+
+`Optional.ifPresent()` 메서드를 예시로 들면
+
+```java
+public class Main {
+    public static void main(String[] args) {
+        // Optional 객체 생성
+        Optional<String> optionalValue = Optional.of("archive 10");
+
+        // ifPresent 메서드를 사용하여 값이 있는 경우에만 작업을 수행
+        optionalValue.ifPresent(value -> System.out.println(value));
+    }
+}
+```
+
+`ifPresent()` 내부의 null 체크 때문에 Optional 클래스로 감싼 객체가 null이 아닌 경우에만 action이 실행된다. 람다식을 파라미터로 넘기게 되면 Consumer를 구현하는 익명 클래스의 인스턴스를 인자로 넘기게 되고, Optional 클래스로 감싼 객체가 null이 아니라면 실행된다.
+
+`ifPresentOrElse()` 메서드는 파라미터로 Consumer 인터페이스의 구현체와 Runnable 인터페이스의 구현체를 받는다. Runnable 인터페이스 역시 함수형 인터페이스이나 주로 새로운 스레드에서 실행된다. 그러면 값이 있는 경우와 없는 경우 모두 Consumer 인터페이스의 구현체를 파라미터로 넘기도록 할 수도 있는데 왜 값이 없는 경우에는 Runnable 인터페이스를 파라미터로 받을까? 보통 value에 값이 없는 경우에는 단순히 다른 작업을 수행하기만 하면 된다. 그러므로 값이 있는 경우에 수행하는 로직과 성격이 다른 작업을 실행하게 되므로 이를 추가적인 스레드에서 작업을 수행한다면, 기존의 작업은 비동기적으로 수행될 수 있을 것이다. 결국은 유연성과 다양성을 지원하기 위함이라고 볼 수 있다.
+
+### 없는 경우
+`ifPresentOrElse()` 메서드가 값이 있는 경우, 없는 경우에 각각 어떤 작업을 할지 명시적으로 지정하는 역할을 한다면, 다음 메서드는 값이 없는 경우 대체할 값을 지정하는 것이 목적인 메서드라고 볼 수 있다.
+
+```java
+public final class Optional<T> {
+	private static final Optional<?> EMPTY = new Optional<>(null);
+    private final T value;
+
+    // ...
+
+	public T orElse(T other) {...}
+	public T orElseGet(Supplier<? extends T> supplier) {...}
+	public T orElseThrow() {...}
+	public <X extends Throwable> T orElseThrow(Supplier<? extends X> exceptionSupplier) throws X {...}
+
+	// ...
+}
+```
+
+`orElse()` 메서드와 `orElseGet()` 메서드 모두 Optional 클래스의 value가 null인 경우 대체 값을 지정한다. 차이가 있다면 `orElse()` 메서드는 파라미터로 같은 타입의 다른 객체를 받는 반면, `orElseGet()` 메서드는 파라미터로 Supplier 인터페이스의 구현체를 받는다. 어떤 차이가 있을까?
+
+그 대체 값을 제공하는 방식에 차이가 있다. `orElse()` 메서드는 이미 생성되어 있는 대체 값을 직접 사용한다. 그러나 `orElseGet()` 메서드는 대체 값을 생성하기 위해 Supplier 인터페이스의 구현체를 사용한다. 즉, Optional 클래스의 value가 null일 경우 Supplier 인터페이스의 구현체가 동작한다. 따라서 대체값이 필요할 때 동적으로 생성할 수 있다.
+
+따라서 아래와 같이 코드를 작성했을 때 내가 겪었던 문제의 원인은 이렇다.
+
+```java
+// orElse()
+User user = userRepository.findOAuthUser(email, providerType)
+  .orElse(createOAuthUser(oAuth2User, providerType));
+
+// orElseGet()
+User user = userRepository.findOAuthUser(email, providerType)
+  .orElseGet(() -> createOAuthUser(oAuth2User, providerType));
+```
+
+Java에서는 메서드의 인자가 전달되기 전에 먼저 평가된다. 이건 Java 언어의 특성이다. 메서드의 인자가 전달되기 전에 평가된다는 것은 표선식이 해당 메서드의 호출 전에 이미 실행되어야 한다는 의미이다. 즉 메서드가 호출되기 전에 인자로 전달되는 표현식의 결과가 먼저 계산된다. 인자로 전달된 메서드는 사용 여부와 관계 없이 항상 실행된다. 따라서 `findOAuthUser()` 메서드의 결과가 존재하더라도, `createOAuthUser()` 메서드는 일단 실행된다.
+
+반면 `orElseGet()` 메서드는 동작이 다르다. 파라미터로 넘기는 Supplier 인터페이스는 역시 함수형 인터페이스다. 주로 지연 평가를 구현하거나 값을 동적으로 생성할 때 사용한다.
+
+내가 작성한 코드를 인라인으로 오버라이딩해서 다시 작성하면 이렇다.
+
+```java
+User user = userRepository.findOAuthUser(email, providerType)
+  .orElseGet(new Supplier<User>() {
+   @Override
+   public User get() {
+    return createOAuthUser(oAuth2User, providerType);
+   }
+  });
+```
+
+```java
+public T orElseGet(Supplier<? extends T> supplier) {
+    return value != null ? value : supplier.get();
+}
+```
+
+그리고 `orElseGet()` 메서드는 값이 없는 경우에 `supplier.get()`을 호출하고 있으므로, Optional 클래스의 value 값이 없는 경우에만 `get()` 메서드가 호출된다. 즉 실제로 대체값을 구하는 로직은 `get()` 메서드가 실행될 때 동작하므로, value 값이 없는 경우에는 `get()` 메서드가 호출되지 않고, 따라서 지연 평가가 가능해진다.
+
+`orElseThrow()` 메서드는 값이 없는 경우 예외 처리를 위한 메서드다. 마찬가지로 파라미터가 없는 `orElseThrow()` 메서드는 Optional 클래스 내부에서 명시된 `new NoSuchElementException(“No value present”);` 라인이 동작한다. Supplier의 구현체를 메서드로 받는 `orElseThrow()` 메서드는 값이 없는 시점에 던져야 하는 예외를 파라미터로 받는다. 역시 지연평가 되므로 실제로 값이 없는 경우에만 해당 예외를 던질 수 있다.
+
+이런 이유였다. 이제 알겠다. 너무 재밌다.
+
+
+
+
+#blog
