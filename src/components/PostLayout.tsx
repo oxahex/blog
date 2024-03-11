@@ -98,11 +98,12 @@ const components = {
   ),
   code: CodeBlock,
   blockquote: (props: ComponentDefaultProps) => (
-    <Card
+    <Box
       as="blockquote"
       margin={{ base: "0.5rem 0" }}
-      padding={{ base: "1rem" }}
+      padding={{ base: "0.5rem 1rem" }}
       color="#5d5d5d"
+      borderLeft="0.1rem solid #5d5d5d"
       {...props}
     />
   ),
