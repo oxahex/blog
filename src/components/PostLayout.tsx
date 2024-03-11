@@ -11,6 +11,7 @@ import {
   HeadingProps,
   Text,
   TextProps,
+  Wrap,
 } from "@chakra-ui/react";
 import Header from "./Header";
 import Footer from "./Footer";
@@ -55,8 +56,8 @@ const components = {
   p: (props: TextProps) => (
     <Text
       as="p"
-      fontSize="0.8rem"
-      lineHeight="1.7"
+      fontSize="0.825rem"
+      lineHeight="1.8"
       padding={{ base: "0 0 0.5rem 0" }}
       {...props}
     />
@@ -64,7 +65,7 @@ const components = {
   ol: (props: BoxProps) => (
     <Box
       as="ol"
-      fontSize="0.8rem"
+      fontSize="0.825rem"
       listStype="inside"
       padding={{ base: "0 0 0.5rem 0" }}
       {...props}
@@ -73,7 +74,7 @@ const components = {
   ul: (props: BoxProps) => (
     <Box
       as="ul"
-      fontSize="0.8rem"
+      fontSize="0.825rem"
       listStype="inside"
       padding={{ base: "0 0 0.5rem 0" }}
       {...props}
@@ -104,6 +105,9 @@ const components = {
       color="#5d5d5d"
       {...props}
     />
+  ),
+  hr: (props: ComponentDefaultProps) => (
+    <Box as="hr" margin={{ base: "1rem 0" }} {...props} />
   ),
 };
 
