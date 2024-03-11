@@ -26,7 +26,7 @@ const PostPageTemplate = ({ data, children }: PostPageProps) => {
           {post?.frontmatter.title}
         </Heading>
         <Flex direction="column" alignItems="center">
-          <Text fontSize="0.8rem">{post?.frontmatter.createdAt}</Text>
+          <Text fontSize="0.825rem">{post?.frontmatter.createdAt}</Text>
           <Flex
             direction="row"
             justifyContent="flex-start"
@@ -37,7 +37,7 @@ const PostPageTemplate = ({ data, children }: PostPageProps) => {
             {post?.frontmatter.tags?.map((tag) => (
               <Link key={tag} to={`/tags/${tag}`}>
                 <Text
-                  fontSize="0.8rem"
+                  fontSize="0.825rem"
                   fontWeight={600}
                   _hover={{ textDecoration: "underline" }}
                 >
