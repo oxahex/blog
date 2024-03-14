@@ -32,7 +32,7 @@ const components = {
   h2: (props: HeadingProps) => (
     <Heading
       as="h2"
-      fontSize="1.2rem"
+      fontSize="1.3rem"
       padding={{ base: "1rem 0 0.8rem 0" }}
       {...props}
     />
@@ -40,7 +40,7 @@ const components = {
   h3: (props: HeadingProps) => (
     <Heading
       as="h3"
-      fontSize="1rem"
+      fontSize="1.2rem"
       padding={{ base: "1rem 0 0.5rem 0" }}
       {...props}
     />
@@ -48,7 +48,7 @@ const components = {
   h4: (props: HeadingProps) => (
     <Heading
       as="h4"
-      fontSize="0.8rem"
+      fontSize="1.1rem"
       padding={{ base: "1rem 0 0.5rem 0" }}
       {...props}
     />
@@ -56,7 +56,7 @@ const components = {
   p: (props: TextProps) => (
     <Text
       as="p"
-      fontSize="0.825rem"
+      fontSize="0.9rem"
       lineHeight="1.8"
       padding={{ base: "0 0 0.5rem 0" }}
       {...props}
@@ -65,7 +65,7 @@ const components = {
   ol: (props: BoxProps) => (
     <Box
       as="ol"
-      fontSize="0.825rem"
+      fontSize="0.9rem"
       listStype="inside"
       padding={{ base: "0 0 0.5rem 0" }}
       {...props}
@@ -74,7 +74,7 @@ const components = {
   ul: (props: BoxProps) => (
     <Box
       as="ul"
-      fontSize="0.825rem"
+      fontSize="0.9rem"
       listStype="inside"
       padding={{ base: "0 0 0.5rem 0" }}
       {...props}
@@ -83,12 +83,12 @@ const components = {
   li: (props: BoxProps) => (
     <Box
       as="li"
-      fontSize="0.8rem"
+      fontSize="0.9rem"
       sx={{
         listStyleType: "none",
         _before: {
           content: '"•"',
-          fontSize: "0.8rem",
+          fontSize: "0.9rem",
           width: "1rem",
           display: "inline-block",
         },
