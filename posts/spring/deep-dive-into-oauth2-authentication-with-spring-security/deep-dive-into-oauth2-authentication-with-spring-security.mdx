@@ -28,14 +28,14 @@ OAuth 2.0 기반 인증 처리를 구현할 때, 최초에 이해한 것은 다�
 
 ## 의문점
 내가 이해하고 있는 OAuth 인증 절차를 그림으로 표현하면 이렇다.
-~[웹 서버 애플리케이션용 OAuth 2.0 사용](https://developers.google.com/identity/protocols/oauth2/web-server?hl=ko#httprest_1)~
+[웹 서버 애플리케이션용 OAuth 2.0 사용](https://developers.google.com/identity/protocols/oauth2/web-server?hl=ko#httprest_1)
 ![OAuth2 인증 절차를 그림으로 그려봤음](img/01.png)
 
 초반 Authorization Code를 발급받는 주체는 구현에 따라 다를 수 있지만 OAuth 인증을 받기 위해서는 여러 번의 요청과 응답이 이루어져야 한다.
 
 구글 OAuth 2.0의 경우,
 1. 사용자 로그인 요청
-2. Google OAuth 2.0 엔드포인트(~[https://accounts.google.com/o/oauth2/v2/auth](https://accounts.google.com/o/oauth2/v2/auth)~)로 리디렉션
+2. Google OAuth 2.0 엔드포인트([https://accounts.google.com/o/oauth2/v2/auth](https://accounts.google.com/o/oauth2/v2/auth))로 리디렉션
 3. 사용자 동의 요청 메세지 화면(Google 제공)이 보여지고 사용자 로그인
 4. 사용자 로그인 성공 시 2에서 쿼리 파라미터로 넘긴 redirect_uri로 리디렉션(Authorization Code 발급)
 5. Authorization Code를 가지고 Access Token으로 교환 요청

@@ -96,6 +96,23 @@ const components = {
       {...props}
     />
   ),
+  a: (props: ComponentDefaultProps) => (
+    <Box
+      as="a"
+      sx={{
+        _before: {
+          content: '"⤴"',
+          fontSize: "0.9rem",
+          display: "inline-block",
+        },
+      }}
+      _hover={{
+        textDecoration: "underline",
+      }}
+      color="#808080"
+      {...props}
+    />
+  ),
   code: CodeBlock,
   blockquote: (props: ComponentDefaultProps) => (
     <Box
