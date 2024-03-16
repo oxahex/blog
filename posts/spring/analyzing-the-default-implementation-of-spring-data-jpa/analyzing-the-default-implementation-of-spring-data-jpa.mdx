@@ -490,7 +490,6 @@ public void get_reference_by_id() throws Exception {
 }
 ```
 
-```
 ```text
 org.hibernate.LazyInitializationException: could not initialize proxy [oxahex.asker.server.domain.user.User#1] - no Session
 ```
@@ -585,5 +584,3 @@ public void deleteById(ID id) {
 
 또, 삭제할 Entity가 영속성 컨텍스트에 없지만 서비스 로직 상 해당 Entity가 없을 때 따로 예외 처리를 해주어야 한다면 `findById()`는 `Optional<T>`를 반환하므로 이 시점에 커스텀한 예외를 반환하고, `delete()` 메서드를 호출해 삭제하는 것도 생각해볼 수 있을 것 같다.
 
-
-#blog
