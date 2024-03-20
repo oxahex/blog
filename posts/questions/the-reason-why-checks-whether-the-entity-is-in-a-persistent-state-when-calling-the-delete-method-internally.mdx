@@ -1,0 +1,107 @@
+---
+slug: the-reason-why-checks-whether-the-entity-is-in-a-persistent-state-when-calling-the-delete-method-internally
+title: "The reason why SimpleJpaRepository checks whether the entity is in a persistent state when calling the delete method internally"
+description: "SimpleJpaRepository 클래스에서 delete 메서드 호출 시 삭제 시점에 내부적으로 Entity의 영속 상태를 체크하는 이유가 궁금해서 질문을 남겼는데, 그 과정에서 알게 된 내용을 기록한 글"
+author: oxahex
+createdAt: 2024-03-20
+tags: ["spring", "jpa", "questions"]
+---
+
+## 문의
+
+[Inquiry Link](https://github.com/spring-projects/spring-data-jpa/issues/3401)
+
+I think if the entity was retrieved using the `find()` in the delete method of SimpleJpaRepository, it can be considered as already managed by the persistence context.
+However, I'm curious if there is a need to check if the entity exists in the persistence context using the `contains()` method before executing the `remove()` method below.
+
+```java
+@Override
+@Transactional
+@SuppressWarnings("unchecked")
+public void delete(T entity) {
+	Assert.notNull(entity, "Entity must not be null");
+	if (entityInformation.isNew(entity)) {
+		return;
+	}
+
+	Class<?> type = ProxyUtils.getUserClass(entity);
+	T existing = (T) entityManager.find(type, entityInformation.getId(entity));
+
+	// if the entity to be deleted doesn't exist, delete is a NOOP
+	if (existing == null) {
+		return;
+	}
+	entityManager.remove(entityManager.contains(entity) ? entity : entityManager.merge(entity));
+}
+```
+
+If so, isn't it unnecessary to call `contains()`?
+
+이 부분이 궁금했던 이유는 다음과 같다.
+
+1. `isNew()` 메서드로 id 필드가 null 또는 0L인지 확인한다. 애초에 저장되지 않은 값을 삭제하는 것은 의미가 없으므로 당연하다.
+2. `find()` 메서드로 영속성 컨텍스트 또는 DB에서 데이터를 조회하고, 없으면 DB에 SELET 요청을 해 데이터를 가져온다.
+3. DB에 데이터가 존재하지 않았을 때 `existing == null`이 된다. 존재하지 않는 데이터는 삭제할 필요가 없으므로 이후 로직을 진행하지 않는다.
+4. 실제로 DB에 존재하는 데이터라면이후 `remove()`를 호출해 DELETE 쿼리를 수행한다.
+5. 재미있는 부분은 `contain()` 메서드를 호출하는 부분인데, 이 메서드를 통해 해당 Entity가 영속성 컨텍스트에 존재하는지 확인한다. 존재한다면 별다른 조치 없이 해당 Entity를 DELETE 처리하고, 존재하지 않는다면 `merge()` 메서드를 호출해 해당 Entity를 영속성 컨텍스트에 저장한 다음 DELETE 처리한다.
+
+궁금한 부분은 5번인데, 이미 위에서 `find()` 호출 시점에 Entity가 영속성 컨텍스트에 저장되는데, 왜 하단에서 영속성 컨텍스트 저장 여부를 다시 확인하는지 잘 모르겠다. 이 부분은 조금 더 확인이 필요해서 JPA 리포지토리에 문의를 남겨 두었다.
+
+문의에 대해 많은 답변과 의견이 오고 갔는데, 알게 된 점이 많아서 기록해둔다.
+
+## 답변
+
+I think this somewhat convoluted process is necessary for cases where entity was modified, before the call to delete, and/or to make sure optimistic locking works as intended.
+Consider this:
+
+1. entity gets loaded, and detached
+2. the same row in the database gets modified in the database by some other process, updating the version attribute.
+3. delete(entity) gets called.
+
+In this case the delete should fail, but if we use `entityManager.remove(entityManger.find(..))` instead, it will actually succeed.
+On the other hand, if we don't check if it exists first, calling delete on a new entity will actually persist it, which probably isn't what was intended.
+
+
+Entity가 수정된 후 삭제하는 경우, Optimistic Locking이 의도대로 작동하는지 확인하기 위해이러한 복잡한 프로세스가 필요하다. 아래 케이스를 고려해보면:
+
+1. Entity가 로드되고, 분리된다.
+2. DB에서 동일한 로우에 해당하는 Entity가 다른 프로세스에 의해 수정되고, 버전 속성이 업데이트 된다.
+3. `delete()` 메서드가 호출된다.
+
+이 경우라면 삭제에 실패해야 하지만 만약 `entityManager.remove(entityManager.find(…))`를 호출하는 경우 성공한다. 만약 영속성 컨텍스트에 새 Entity가 존재하는지 확인하지 않는다면, 삭제를 하더라도 유지된다. 이것은 의도한 동작이 아닐 것이다.
+
+
+## 이해
+DB 레벨이 아니라 Application 레벨에서 `@Version` 어노테이션을 이용해 낙관적 락을 걸면 트랜잭션 내에서 처음 조회 되었을 때의 버전과, 이후 수정되고 커밋 될 때의 버전을 비교하게 된다. 만약 버전 필드의 값이 조회 시점과 커밋 시점에 다르다면, 충돌이 발생한 것으로 간주하고 예외를 발생시킨다.
+
+Spring Data JPA 기반의 프로젝트에서 낙관적 락 충돌 시 Hibernate에서 StaleStateException 예외를 발생시킨다. 이 예외는 OptimisticLockingFailureException으로 변환되어 올라온다.
+
+따라서 답변자가 든 예시 케이스에서는 반드시 OptimisticLockingFailureException이 발생한다. Entity가 조회된 시점으로부터, 커밋하는 시점 사이에 다른 프로세스에서 해당 Entity의 변경이 일어났으므로 충돌이 발생하기 때문이다.
+
+`delete()` 메서드가 작동하는 방식으로 다시 돌아가면, `entityManager.remove()` 메서드에서 `entityManger.contains()` 메서드로 해당 Entity가 영속 상태인지 확인하고, 영속 상태가 아니라면(준영속) Entity를 merge 처리해 영속 상태로 만들고 삭제한다.
+
+내가 의문을 가졌던 이유는 `delete()` 메서드 내에서 `entityManager.find()` 메서드를 통해 영속 상태인 Entity를 가져오거나 없는 경우 DB에서 가져오는 시점에 해당 Entity는 이미 영속 상태로 간주되는데, 삭제 시점에 이를 한 번 더 확인하는 것은 불필요하다는 생각이 들어서였다.
+
+내가 놓쳤던 것은 Optimistic Locking의 동작이었다. 즉, 하나의 스레드에서 Entity를 조회하고 이를 삭제하는 시나리오라면 명시적으로 `detach()` 메서드를 사용해 Entity를 준영속 상태로 만들지 않는 한 `delete()`가 호출될 때 Entity는 영속 상태다. 그러나 다른 스레드가 동작하는 경우라면 이야기가 달라질 수 있다.
+
+1. 스레드 A에서 Entity를 조회
+2. 스레드 B에서 동일한 Entity를 조회 후 수정한 다음 커밋
+3. 스레드 A에서 동일한 Entity를 삭제
+
+2번에서 스레드 B의 업데이트 작업과 커밋으로 인해 Entity의 버전이 변경되므로 3번에서 스레드 A가 해당 Entity를 삭제하려 할 때 버전 충돌이 발생한다. 영속성 컨텍스트는 트랜잭션 단위로 관리되므로 스레드 A의 영속성 컨텍스트에 저장된 Entity의 버전은 최신이 아니다. 따라서 3번 작업이 수행되면 `delete()` 메서드 내에서 이전 버전의 영속 상태인 Entity를 삭제 시도하게 되고 OptimisticLockingFailureException이 발생한다.
+
+즉, OptimisticLockingFailureException이 발생했다면 이 Entity는 영속 상태든 아니든 merge 처리 되어서는 안 된다.
+
+그렇다면 이런 케이스도 생각해볼 수 있다. 스레드 A와 스레드 B가 있다. 두 스레드는 서로 다른 트랜잭션에서 독립적으로 동작한다. `Entity@v1`는 이미 스레드 A의 영속성 컨텍스트에 로드되어, 스레드 A가 이를 수정 중인 상황이다. 이 때, 스레드 B가 같은 Entity를 삭제하려는 시도를 한다.
+
+1. 스레드 A: Entity를 로드하고 수정한다. `Entity@v1 -> Entity@v2`(영속성 컨텍스트 저장)
+2. 스레드 B: 동일한 Entity를 삭제하기 위해 `delete()` 메서드를 호출한다.
+3. 스레드 B: `delete()` 메서드 내에서 `entityManager.find()` 메서드를 호출해 Entity를 조회한다. 스레드 A의 변경사항이 커밋된 것은 아니므로 DB의 Entity 버전은 증가하지 않았다. 따라서 변수 `existing`에 DB에서 조회한 `Entity@v1`이 할당된다.
+
+이 경우 스레드 B에서 실행되는 `delete()` 메서드는 내부적으로 `existing != null` 이지만, `remove()` 호출 시점에서 `entityManager.contains()` 메서드로 영속 상태를 확인할 때는 이미 `find()` 메서드로 해당 Entity를 스레드 B의 영속성 컨텍스트, 또는 DB에서 조회하므로 이 시점에서 Entity는 영속 상태다. 그렇다면 `delete()` 메서드에 준영속 상태의 Entity(영속성 컨텍스트로 관리되지 않는 Entity)가 파라미터로 들어오더라도 `remove()` 메서드가 호출되는 시점에서는 Entity는 반드시 영속 상태일 수밖에 없지 않나?
+
+
+
+
+
+
