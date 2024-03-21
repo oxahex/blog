@@ -234,3 +234,120 @@ ip         heap.percent ram.percent cpu load_1m load_5m load_15m node.role   mas
 10.178.0.3           16          82   0    0.00    0.03     0.06 cdfhilmrstw -      asker-node-2
 ```
 
+
+## 기본 보안 적용
+`xpack.security.enabled` 설정을 `false`로 해두고 클러스터를 구성했다. 우선 두 개의 노드가 하나의 클러스터로 묶이는 것을 빠르게 확인해보고 싶었기 때문이다. 하지만 현재는 노드 간 통신에 SSL이 적용되어 있지 않고, 외부에 공개된 IP로 누구나 요청을 보낼 수 있다. 따라서 기본적인 보안을 위해 두 가지 설정을 추가로 적용해야 한다.
+[Set up basic security](https://www.elastic.co/guide/en/elasticsearch/reference/8.12/security-basic-setup.html)
+
+첫 번째는 요청을 할 수 있는 유저를 제한하는 것이고, 두 번째는 노드 간 통신에 TLS를 적용하는 것이다. 운영 모드로 ES를 구동하려면 부트스트랩이 수행된다. 이 과정에서 여러 개의 노드를 하나의 클러스터로 묶어서 구동하려면 SSL을 적용해야 한다.
+
+따라서 ID, Password 설정 이전에 TLS를 먼저 적용하고, 이후 ID, Password를 설정했다.
+
+### 노드 간 통신에 TLS 적용
+[Set up basic security for the Elastic Stack | Elasticsearch Guide \[8.12\] | Elastic](https://www.elastic.co/guide/en/elasticsearch/reference/8.12/security-basic-setup.html#generate-certificates)
+`elasticsearch.yml` 파일에서 보안 관련 설정을 하는 부분은 다음과 같다.
+
+```yml
+# Enable security features
+xpack.security.enabled: true
+
+xpack.security.enrollment.enabled: true
+
+# Enable encryption for HTTP API client connections, such as Kibana, Logstash, and Agents
+xpack.security.http.ssl:
+  enabled: true
+  keystore.path: certs/http.p12
+
+# Enable encryption and mutual authentication between cluster nodes
+xpack.security.transport.ssl:
+  enabled: true
+  verification_mode: certificate
+  keystore.path: certs/transport.p12
+  truststore.path: certs/transport.p12
+```
+
+공개 키와 보안 키를 생성하고, 키의 위치를 파일에 명시해야 한다.
+
+ES에서는 Certificate Authority를 생성할 수 있는 유틸을 제공한다.
+```shell
+./bin/elasticsearch-certutil ca
+```
+
+기본값으로 `elastic-stack-ca.p12`라는 파일에 CA의 공개 인증서와 각 노드의 인증서에 서명하는 데 사용되는 개인 키(공개 키)가 포함된다. 이후 이 키를 이용해 대칭 키를 만든다. `elasticsearch.yml` 파일의 기본 값에 key path가 cert 디렉토리 하위에 있으므로 대칭 키 생성 시 디렉토리를 생성하고, 하위에 만들기로 했다.
+
+공개 키 파일과 대칭 키 파일 이름을 커스텀해서 생성했고, 이 파일의 경로를 `elasticsearch.yml` 파일에 명시했다.
+이후 ES를 구동하기 위해 `secure_password`를 명시해 주어야 하는데, 이 설정은 secure setting이고, ElasticSearch keystone 내에 저장되어 있어야 한다. 그냥 `elasticsearch.yml` 파일에 스트링으로 명시하면 IllegalArgumentException이 발생한다.
+
+당연히 패스워드는 보이지 않는 곳에 저장을 해야 하므로 ES에서는 keystore 유틸을 제공한다. 유틸을 사용해 `keystore.secured_password`, `truststore.secured_password`를 모두 설정했다. 이 부분도 공식 문서에 잘 나와 있었다.
+
+ES는 정상적으로 구동 되었다. 이제 asker-node-2에서도 같은 대칭 키를 사용할 수 있도록 해야 한다. 파일 전송 프로토콜인 scp를 이용해 해당 파일을 asker-elastic-2 VM Instance의 동일한 위치에 전송했다. 마찬가지로 `elasticsearch.yml` 파일의 보안 설정을 수정하고, keystore에 두 secured password를 저장했다.
+
+이후부터는 두 노드가 내부적으로 통신할 때 보안이 적용된 프로토콜로 통신을 하게 된다.
+
+
+### Password 설정
+이후부터는 외부에서 ES로 쿼리할 때 ID, Password를 포함해 요청을 보내야 한다. ES에서 패스워드를 설정할 수 있는 유틸을 제공한다.
+[Built-in users | Elasticsearch Guide \[8.12\] | Elastic](https://www.elastic.co/guide/en/elasticsearch/reference/8.12/built-in-users.html#set-built-in-user-passwords)
+
+```shell
+oxahex@asker-elastic-1~$ ./bin/elasticsearch-setup-passwords
+Sets the passwords for reserved users
+
+Non-option arguments:
+command
+
+Option             Description
+------             -----------
+-E <KeyValuePair>  Configure a setting
+-h, --help         Show help
+-s, --silent       Show minimal output
+-v, --verbose      Show verbose output
+
+ERROR: Missing required command, with exit code 64
+
+Commands
+--------
+auto - Uses randomly generated passwords
+interactive - Uses passwords entered by a user
+```
+
+두 가지 옵션을 줄 수 있는데, auto 옵션은 패스워드를 자동 생성하고, interactive 옵션은 유저가 직접 입력하는 방식이다.
+만약 auto 옵션으로 패스워드를 생성하게 되면 주요 시스템의 ID와 Password를 한 번에 세팅하게 되는데, 이를 잊어버리면 다시 생성할 수 없다. data 디렉토리를 날리고 다시 셋업해야 한다. 아니면 `/bin/elasticsearch-users` 유틸을 사용해 유저를 추가하는 방법도 있긴 하다.
+
+> **Native Realm**
+> `elasticsearch-setup-password` 유틸을 이용해 주요 패스워드를 설정한다.
+> `_security/role`, `_security/user`와 같은 REST API를 이용해서 사용자와 롤을 추가하거나 삭제할 수 있다.
+> Kibana의 사용자와 롤 설정 UI도 이 API를 사용한다.
+> 클러스터 상태 정보 영역에 저장되기 때문에 어떤 노드에서든 실행하면 클러스터로 묶인 모든 노드에서 사용이 가능하다.
+>
+> **File Realm**
+> `elasticsearch-users` 유틸을 이용해 사용자의 롤을 추가하고 삭제할 수 있다.
+> `config/` 디렉토리 하위의 `users`, `users_roles` 파일을 수정해서 추가 또는 삭제가 가능하다.
+> 파일 기반이므로 설정한 노드에서만 유효하다.
+
+interactive로 패스워드를 설정하고 외부에서 ES로 요청했을 때 기대했던 응답을 받을 수 있었다.
+
+```text
+~ % curl 34.64.84.94:9200 -u elastic
+Enter host password for user 'elastic':
+{
+  "name" : "asker-node-1",
+  "cluster_name" : "asker-cluster",
+  "cluster_uuid" : "H3WgHjaHR1C7wmxYNTwGgw",
+  "version" : {
+    "number" : "8.12.2",
+    "build_flavor" : "default",
+    "build_type" : "tar",
+    "build_hash" : "48a287ab9497e852de30327444b0809e55d46466",
+    "build_date" : "2024-02-19T10:04:32.774273190Z",
+    "build_snapshot" : false,
+    "lucene_version" : "9.9.2",
+    "minimum_wire_compatibility_version" : "7.17.0",
+    "minimum_index_compatibility_version" : "7.0.0"
+  },
+  "tagline" : "You Know, for Search"
+}
+```
+
+
+
