@@ -66,7 +66,7 @@ const components = {
     <Box
       as="ol"
       fontSize="0.9rem"
-      listStype="inside"
+      listStyleType="inside"
       padding={{ base: "0 0 0.5rem 0" }}
       {...props}
     />
@@ -75,7 +75,7 @@ const components = {
     <Box
       as="ul"
       fontSize="0.9rem"
-      listStype="inside"
+      listStyleType="inside"
       padding={{ base: "0 0 0.5rem 0" }}
       {...props}
     />
