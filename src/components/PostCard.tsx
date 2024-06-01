@@ -19,7 +19,6 @@ const PostCard = ({
   createdAt,
   tags,
 }: PostCardProps) => {
-  console.log(title);
   return (
     <Box key={id} as="li" padding="1rem">
       <Link to={`/posts/${slug}`}>

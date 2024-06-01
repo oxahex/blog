@@ -10,8 +10,6 @@ const parseClassName = (className: string) => {
 const CodeBlock = ({ children, className }: ComponentDefaultProps) => {
   const language = /language-(\w+)/.exec(className || "");
 
-  console.log(language);
-
   if (!language) {
     return (
       <Text
