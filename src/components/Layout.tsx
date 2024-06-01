@@ -18,7 +18,7 @@ const Layout = ({ children }: LayoutProps) => {
         alignItems="center"
         justifyContent="center"
         width="100%"
-        maxWidth={900}
+        maxWidth={720}
         margin="auto"
       >
         {children}
