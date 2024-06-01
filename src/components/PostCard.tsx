@@ -28,7 +28,9 @@ const PostCard = ({
             <Text fontSize="1rem" fontWeight={600}>
               {title}
             </Text>
-            <Text fontSize="0.8rem">{description}</Text>
+            <Text fontSize="0.8rem" marginBottom="0.3rem">
+              {description}
+            </Text>
             <Text fontSize="0.6rem">{createdAt}</Text>
           </Flex>
         </Box>
