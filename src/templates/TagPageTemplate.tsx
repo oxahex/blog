@@ -38,7 +38,7 @@ const TagPageTemplate = ({ data, pageContext }: TagPageProps) => {
             createdAt: post.frontmatter?.createdAt!,
             tags: post.frontmatter?.tags!,
           };
-          return <PostCard {...postData} />;
+          return <PostCard key={postData.id} {...postData} />;
         })}
       </Box>
     </Layout>
@@ -79,8 +79,6 @@ export const Head: HeadFC<
   const title = "Archive 10";
   const currentTag = pageContext.tag;
   const description = "기술 블로그";
-
-  console.log("??: " + pageContext);
 
   return <SEO title={`${title} ${currentTag}`} description={description} />;
 };
