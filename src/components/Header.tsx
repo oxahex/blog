@@ -40,7 +40,7 @@ const Header = () => {
       height="100px"
     >
       <Link to={`/`} itemProp="url">
-        <span>Archive 10</span>
+        Archive 10
       </Link>
     </Box>
   );

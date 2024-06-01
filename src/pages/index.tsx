@@ -35,7 +35,7 @@ const IndexPage: React.FC<IndexPageProps> = ({ data, children }) => {
             createdAt: post.frontmatter?.createdAt!,
             tags: post.frontmatter?.tags!,
           };
-          return <PostCard {...postData} />;
+          return <PostCard key={postData.id} {...postData} />;
         })}
       </Box>
     </Layout>

@@ -20,7 +20,7 @@ const PostCard = ({
   tags,
 }: PostCardProps) => {
   return (
-    <Box key={id} as="li" padding="1rem">
+    <Box as="li" padding="1rem">
       <Link to={`/posts/${slug}`}>
         <Box overflow="hidden" width="100%" height="100%">
           <Flex direction="column">
