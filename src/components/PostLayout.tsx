@@ -135,7 +135,7 @@ const PostLayout: React.FC<ArticleProps> = ({ children }: ArticleProps) => {
       <Header />
       <Box
         as="main"
-        maxWidth={{ base: "720px", xl: "1100px" }}
+        maxWidth={{ base: "720px", xl: "800px" }}
         style={{
           width: "100%",
           margin: "50px auto",
