@@ -1,0 +1,1177 @@
+---
+slug: state-management-in-react
+title: "State Management in React"
+description: "React에서 컴포넌트의 상태를 관리하는 방법에 대해 살펴본다."
+author: oxahex
+createdAt: 2024-06-02
+tags: ["react"]
+---
+
+## 선언형 UI와 명령형 UI
+리액트는 선언적인 방식으로 UI를 조작한다. UI 요소를 직접 조작하는 대신 컴포넌트가 가질 수 있는 다양한 상태를 기술하고, 사용자의 입력에 따라 이 상태들을 변경한다. 이는 디자이너가 UI를 생각하는 방식과 꽤 유사하다.
+
+- 선언형 UI 프로그래밍은 명령형 UI 프로그래밍과 어떻게 다를까?
+- 컴포넌트에 들어갈 수 있는 다양한 시각적 상태를 나열하는 방법
+- 코드에서 다양한 시각적 상태의 변화를 트리거하는 방법
+
+UI 상호작용을 설계할 때, 사용자의 행동에 따라 UI를 어떻게 변경해야 할지 고민해본 적이 있을 것이다. 유저가 form을 입력하는 상황을 생각해보자.
+
+```javascript
+async function handleFormSubmit(e) {
+  e.preventDefault();
+  disable(textarea);
+  disable(button);
+  show(loadingMessage);
+  hide(errorMessage);
+  try {
+    await submitForm(textarea.value);
+    show(successMessage);
+    hide(form);
+  } catch (err) {
+    show(errorMessage);
+    errorMessage.textContent = err.message;
+  } finally {
+    hide(loadingMessage);
+    enable(textarea);
+    enable(button);
+  }
+}
+
+function handleTextareaChange() {
+  if (textarea.value.length === 0) {
+    disable(button);
+  } else {
+    enable(button);
+  }
+}
+
+function hide(el) {
+  el.style.display = 'none';
+}
+
+function show(el) {
+  el.style.display = '';
+}
+
+function enable(el) {
+  el.disabled = false;
+}
+
+function disable(el) {
+  el.disabled = true;
+}
+
+function submitForm(answer) {
+  // 네트워크에 접속한다고 가정해봅시다.
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      if (answer.toLowerCase() === 'istanbul') {
+        resolve();
+      } else {
+        reject(new Error('Good guess but a wrong answer. Try again!'));
+      }
+    }, 1500);
+  });
+}
+
+let form = document.getElementById('form');
+let textarea = document.getElementById('textarea');
+let button = document.getElementById('button');
+let loadingMessage = document.getElementById('loading');
+let errorMessage = document.getElementById('error');
+let successMessage = document.getElementById('success');
+form.onsubmit = handleFormSubmit;
+textarea.oninput = handleTextareaChange;
+
+```
+
+- form에 무언가를 입력하면 ‘제출’ 버튼이 활성화 될 것이다.
+- ’제출’ 버튼을 누르면 form과 버튼이 비활성화 되고 스피너가 나타난다.
+- 네트워크 요청이 성공하면 form은 숨겨질 것이고 ‘Thank you.’ 메세지가 나타날 것이다.
+- 네트워크 요청이 실패하면 오류 메세지가 나타나고 form이 다시 활성화될 것이다.
+
+위의 내용은 명령형 프로그래밍에서 사용자 인터렉션을 구현하는 방법이다. UI를 조작하기 위해서는 발생한 상황에 따라 정확한 지침을 작성해야만 한다. 이러한 방식을 ‘명령형’이라고 하는 이유는 컴퓨터에게 스피너부터 버튼에 이르기까지 각각의 요소를 어떻게 업데이트 해야할지 ‘명령’을 내려야 하기 때문이다.
+
+이렇게 UI를 조작하면 시스템의 복잡도가 증가함에 따라 난이도가 기하급수적으로 올라간다. 여러 개의 form이 동작하는 기존의 코드에 새로운 UI나 사용자 인터렉션을 추가 해야 한다면 기존의 모든 코드를 주의깊게 살펴야 한다. 어떤 요소를 보여주거나, 숨기는 등의 작업을 놓칠 가능성이 있다. React는 이러한 문제를 해결하기 위해 만들어졌다.
+
+React를 사용하는 경우 UI를 직접 조작할 필요가 없다. 즉, 컴포넌트를 직접 컨트롤하지 않고 **무엇을 보여주고 싶은지 선언**하기만 하면 된다.
+
+## UI를 선언적인 방식으로 생각한다는 것은
+
+1. 컴포넌트의 다양한 state를 확인한다.
+2. 무엇이 state 변화를 트리거하는지 알아낸다.
+3. 메모리의 state를 `useState`로 표현한다.
+4. 불필요한 state 변수를 제거한다.
+5. state 설정을 위해 이벤트 핸들러를 연결한다.
+
+### 컴포넌트의 다양한 state를 확인한다
+먼저 사용자가 볼 수 있는 UI의 모든 state를 시각화 해야 한다.
+- 비어있음(empty): form에 ‘제출’ 버튼이 비활성화 되어 있다.
+- 입력 중(typing): form에 ‘제출’ 버튼이 활성화 되어 있다.
+- 제출 중(submitting): form이 비활성화 되고 스피너가 표시된다.
+- 요청 성공(success): form 대신 ‘Thank you’ 메세지가 표시된다.
+- 요청 오류(error): 입력 중 상태와 같지만 추가적인 오류 메세지가 표시된다.
+
+```jsx
+export default function Form({ status }) {
+  if (status === 'success') {
+    return <h1>That's right!</h1>
+  }
+  return (
+    <form>
+      <textarea disabled={
+        status === 'submitting'
+      } />
+      <br />
+      <button disabled={
+        status === 'empty' ||
+        status === 'submitting'
+      }>
+        Submit
+      </button>
+      {status === 'error' &&
+        <p className="Error">
+          Good guess but a wrong answer. Try again!
+        </p>
+      }
+    </form>
+  );
+}
+```
+
+### 무엇이 state 변화를 트리거하는지 알아낸다
+5개의 state 간 변경은 두 가지 종류의 입력에 대한 반응으로 트리거 된다.
+1. 사람의 입력: 버튼 클릭, 필드에 입력, 링크 탐색 등
+2. 컴퓨터의 입력: 네트워크 응답 도착, 타임아웃 완료, 이미지 로딩 등
+
+이 두 가지 케이스에 대해 UI를 업데이트 하기 위해서는 state 변수를 설정해야 한다.
+1. 텍스트 인풋을 변경하면(사람의 입력) textarea가 비어있는지 여부에 따라 state를 `empty`에서 `typing` 또는 그 반대로 변경해야 한다.
+2. 제출 버튼을 클릭하면(사람의 입력) state를 `submitting`으로 변경해야 한다.
+3. 네트워크 응답 수신에 성공하면(컴퓨터 입력) state를 `success`로 변경해야 한다.
+4. 네트워크 요청이 실패하면(컴퓨터 입력) state를 `error`로 변경해야 한다.
+
+### 메모리의 state를 `useState`로 표현한다
+무엇이 state를 변경하는지 모두 정의되었다면 `useState`를 이용해 컴포넌트의 state를 표현해야 한다. 이 과정은 단순해야 한다. 각각의 state는 **moving piece**다. 적을 수록 좋다. 복잡하면 버그를 일으킬 가능성이 올라가기 때문이다.
+
+먼저 반드시 필요한 state가 무엇인지 생각해보자. 예를 들어 textarea에 입력된 값은 저장해야 한다. 또, 최근에 발생한 오류도 저장해야 할 필요가 있다.
+
+```javascript
+const [answer, setAnswer] = useState('');
+const [error, setError] = useState(null);
+```
+
+그리고 앞서 나열했던 시각적인 state를 표시해야 한다.
+
+```javascript
+const [isEmpty, setIsEmpty] = useState(true);
+const [isTyping, setIsTyping] = useState(false);
+const [isSubmitting, setIsSubmitting] = useState(false);
+const [isSuccess, setIsSuccess] = useState(false);
+const [isError, setIsError] = useState(false);
+```
+
+### 불필요한 state 변수를 제거한다
+state의 중복은 피하고 필수적인 state만 남겨두는 것이 좋다. 이를 위해 다음을 생각해볼 수 있다.
+
+- state가 모순을 일으킴: `isTyping`과 `isSubmitting`이 동시에 참일 수 없다.
+- 서로 다른 state에 이미 같은 정보가 포함되어 있음: `isEmpty`와 `isTyping`은 동시에 참일 수 없다. 이를 각각의 state 변수로 분리하면 싱크가 맞지 않을 가능성이 있다. `isEmpty`를 state로 관리하는 대신 `answer.length === 0`으로 체크할 수 있을 것이다.
+- state 변수를 뒤집었을 때 같은 정보를 얻을 수 있음: `isError`는 `error != null`로도 대신 확인할 수 있다.
+
+이러한 정리 과정을 거친 후에는 7개의 state가 3개로 줄어든다.
+```javascript
+const [answer, setAnswer] = useState('');
+const [error, setError] = useState(null);
+const [status, setStatus] = useState('typing'); // 'typing', 'submitting', or 'success'
+```
+
+### state 설정을 위해 이벤트 핸들러를 연결한다
+마지막으로 state 변수를 설정하기 위해 이벤트 핸들러를 연결한다.
+
+
+## state 구조화
+state를 구조화 하는 것은 애플리케이션에서 상태를 효율적으로 관리하기 위해 관리해야 하는 상태를 계획하는 것이다.
+
+1. 연관된 state 그룹화하기: 두 개 이상의 state 변수를 항상 동시에 업데이트 해야 한다면 두 state를 하나로 합치는 것을 고려해볼 수 있다.
+2. state 모순 피하기
+3. 불필요한 state 제거하기: 렌더링 중에 컴포넌트의 props나 기존의 state를 이용해 일부 변수를 계산할 수 있다면 이를 state로 관리하지 않아야 한다.
+4. state 중복 피하기: 여러 상태 변수 간, 또는 중첩된 객체 내에서 동일한 데이터가 중복되는 경우 이를 동기화하기 어렵다.
+5. 깊게 중첩된 state 피하기: 깊게 계층화된 state는 업데이트하기 어렵다. 가능하면 state를 평탄화하는 것이 좋다.
+
+이러한 원칙이 추구하는 바는 **오류 없이 상태를 쉽게 업데이트하는 것**이다. 불필요한 state나 중복된 데이터를 제거하면 모든 데이터 조각이 동기화 상태를 유지하는 데 도움이 된다. 데이터베이스 정규화의 목적과 비슷한 측면이 있다.
+
+### 연관된 state 그룹화하기
+단일 state 변수와 다중 state 변수 중 어떤 것을 택해야 하는지 고민이 될 수 있다.
+```javascript
+// 단일
+const [position, setPosition] = useState({ x: 0, y: 0 });
+
+// 다중
+const [x, setX] = useState(0);
+const [y, setY] = uesState(0);
+```
+
+기술적으로 두 가지 방식 모두 사용 가능하다. 이 때 고려해볼 수 있는 state 구조화 원칙은 각각의 state가 항상 함께 변경되는지 확인하는 것이다. 그렇다면 단일 state 변수로 통합하는 것이 좋다.
+
+### state 모순 피하기
+
+```javascript
+const [text, setText] = useState('');
+const [isSending, setIsSending] = useState(false);
+const [isSent, setIsSent] = useState(false);
+
+async function handleSubmit(e) {
+  e.preventDefault();
+  setIsSending(true);
+  await sendMessage(text);
+  setIsSending(false);
+  setIsSent(true);
+}
+```
+
+이 경우 `isSending`과 `isSent` state는 동시에 `true`가 되면 안 된다. 만약 두 state를 함께 변경하지 않는 경우 문제가 발생한다. 이러한 경우에는 아래와 같이 두 가지 유효한 상태 중 하나를 가질 수 있는 `status`를 state 변수로 관리하는 것이 더 간결하고 명확하다.
+
+```javascript
+const [text, setText] = useState('');
+const [status, setStatus] = useState('typing');
+
+async function handleSubmit(e) {
+  e.preventDefault();
+  setStatus('sending');
+  await sendMessage(text);
+  setStatus('sent');
+}
+```
+
+
+### 불필요한 state 피하기
+
+```javascript
+const [firstName, setFirstName] = useState('');
+const [lastName, setLastName] = useState('');
+const [fullName, setFullName] = useState('');
+
+function handleFirstNameChange(e) {
+  setFirstName(e.target.value);
+  setFullName(e.target.value + ' ' + lastName);
+}
+
+function handleLastNameChange(e) {
+  setLastName(e.target.value);
+  setFullName(firstName + ' ' + e.target.value);
+}
+```
+
+이 경우 `fullName` state는 사실 불필요하다. `firstName`과 `lastName` 변수를 통해 `fullName`을 얻을 수 있기 때문이다. 아래와 같이 기존의 state를 통해 연산을 하는 방식으로 수정하는 것이 더 명확하다.
+
+`fullName`은 state 변수가 아니지만, `firstName`과 `lastName`의 변경이 컴포넌트 렌더링을 트리거하기 때문에 다시 계산된다.
+
+```javascript
+const [firstName, setFirstName] = useState('');
+const [lastName, setLastName] = useState('');
+
+const fullName = firstName + ' ' + lastName;
+
+function handleFirstNameChange(e) {
+  setFirstName(e.target.value);
+}
+
+function handleLastNameChange(e) {
+  setLastName(e.target.value);
+}
+```
+
+
+### state 중복 피하기
+`initialItems` 배열에 들어있는 데이터를 `items` state에 할당하고, 선택한 데이터를 `selectedItem` state에 저장한다.
+
+```javascript
+import { useState } from 'react';
+
+const initialItems = [
+  { title: 'pretzels', id: 0 },
+  { title: 'crispy seaweed', id: 1 },
+  { title: 'granola bar', id: 2 },
+];
+
+export default function Menu() {
+  const [items, setItems] = useState(initialItems);
+  const [selectedItem, setSelectedItem] = useState(
+    items[0]
+  );
+
+  return (
+    <>
+      <h2>What's your travel snack?</h2>
+      <ul>
+        {items.map(item => (
+          <li key={item.id}>
+            {item.title}
+            {' '}
+            <button onClick={() => {
+              setSelectedItem(item);
+            }}>Choose</button>
+          </li>
+        ))}
+      </ul>
+      <p>You picked {selectedItem.title}.</p>
+    </>
+  );
+}
+```
+
+이 경우 `selectedItem`에 저장된 객체는 `items` 목록 내의 항목 중 하나와 동일한 정보를 갖는다. 만약 `items` 내의 데이터를 변경한다면, 변경 사항은 `selectedItem`에서도. 확인할 수 있어야 한다. `setItems`를 할 때 `setSelectedItem`을 함께 실행해 동기화할 수도 있지만, 중복을 제거하는 쪽으로 수정해야 한다. 이를 따로 동기화하는 것보다 `selectedId`를 state로 관리하고, `items`에서 `selectedId`를 찾아 `selectedItem`을 화면에 표시하는 것이 오류 발생 가능성을 낮춘다.
+
+```javascript
+const [items, setItems] = useState(initialItems);
+const [selectedId, setSelectedId] = useState(0);
+
+const selectedItem = items.find(item =>
+  item.id === selectedId
+);
+```
+
+사용자가 선택한 id(필수값)를 state로 관리하고, 나머지는 렌더링하는 동안 계산한다.
+
+
+### 깊게 중첩된 state 피하기
+중첩된 state를 업데이트 하려면 변경된 부분부터 모든 객체의 복사본을 만들어야 한다. 이런 경우에는 데이터의 구조를 변경해서 사용하는 것을 고려해야 한다. 일종의 정규화 작업이다.
+
+
+## 컴포넌트 간 state 공유
+두 컴포넌트의 state가 항상 함께 변경되어야 하는 경우 가장 쉽게 떠올릴 수 있는 방법은 ‘state를 끌어올리는 것’이다. 두 컴포넌트의 state를 제거하고, 가장 가까운 공통의 부모 컴포넌트로 해당 state를 옮긴 후, 이를 두 컴포넌트에 props로 전달한다.
+
+아래 `Panel` 컴포넌트는 `title`과 `children`을 props로 받는다. 부모 컴포넌트인 `Accordion`은 두 개의 `Panel` 컴포넌트를 렌더링 한다.
+
+```javascript
+import { useState } from 'react';
+
+function Panel({ title, children }) {
+  const [isActive, setIsActive] = useState(false);
+  return (
+    <section className="panel">
+      <h3>{title}</h3>
+      {isActive ? (
+        <p>{children}</p>
+      ) : (
+        <button onClick={() => setIsActive(true)}>
+          Show
+        </button>
+      )}
+    </section>
+  );
+}
+
+export default function Accordion() {
+  return (
+    <>
+      <h2>Almaty, Kazakhstan</h2>
+      <Panel title="About">
+        With a population of about 2 million...
+      </Panel>
+      <Panel title="Etymology">
+		The name comes from...
+      </Panel>
+    </>
+  );
+}
+```
+
+이 때, 각 `Panel` 컴포넌트는 콘텐츠 표시 여부를 결정하는 `isActive` state를 독립적으로 가지게 된다.
+
+현재 각 `Panel`은 서로의 상태를 모른다. 만약 한 번에 하나의 패널만 열리도록 변경해야 하는 경우 어떻게 해야 할까?
+
+`Panel`의 state인 `isActive`에 대한 제어권을 부모 컴포넌트인 `Accordion`에게 넘기고, `Panel` 컴포넌트는 `isActive`를 props로 받는다.
+
+```javascript
+function Panel({ title, children, isActive }) {}
+```
+
+그러면 `Panel`은 `isActive`를 제어할 수 없다. 이런 식으로 상태를 끌어올리게 되면 state로 저장하고 있는 데이터의 특성을 변경해야 할 수도 있다. 이 케이스에서는 한 번에 하나의 패널만 활성화 되어야 한다는 조건이 있다. 그렇다면 `Panel`의 기존 state인 `isActive`를 부모 컴포넌트로 이동하는 것이 아니라 현재 열려 있어야 하는 패널이 어떤 것인지를 추적할 수 있도록 state를 변경할 필요가 있다.
+
+```javascript
+const [activeIndex, setActiveIndex] = useState(0)
+```
+```jsx
+<>
+  <Panel
+    isActive={activeIndex === 0}
+    onShow={() => setActiveIndex(0)}
+  >
+    ...
+  </Panel>
+  <Panel
+    isActive={activeIndex === 1}
+    onShow={() => setActiveIndex(1)}
+  >
+    ...
+  </Panel>
+</>
+```
+
+
+## state 보존 및 초기화
+각 컴포넌트는 독립된 state를 가진다. 그래서 state가 컴포넌트 내에 존재한다고 오해하기 쉽다. 하지만 실제로 state는 컴포넌트의 인스턴스에 저장되는 것이 아니라 React 내부에서 관리된다. React는 관리하고 있는 각 state를 알맞은 컴포넌트와 연결한다.
+
+React는 가상 DOM을 사용해 컴포넌트 트리를 구성한다. 트리는 요소와 UI 사이의 관계 모델다. 즉, React는 트리를 통해 컴포넌트의 구조를 이해하고, 트리 구조 내 컴포넌트 위치를 기반으로 state를 연결한다.
+
+아래 코드는 `div` 내에 각각의 `Counter` 컴포넌트를 동등한 위치에 렌더링한다.
+
+```javascript
+import { useState } from 'react';
+
+export default function App() {
+  const [showB, setShowB] = useState(true);
+  return (
+    <div>
+      <Counter />
+      {showB && <Counter />}
+      <label>
+        <input
+          type="checkbox"
+          checked={showB}
+          onChange={e => {
+            setShowB(e.target.checked)
+          }}
+        />
+        Render the second counter
+      </label>
+    </div>
+  );
+}
+
+function Counter() {
+  const [score, setScore] = useState(0);
+  const [hover, setHover] = useState(false);
+
+  let className = 'counter';
+  if (hover) {
+    className += ' hover';
+  }
+
+  return (
+    <div
+      className={className}
+      onPointerEnter={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
+    >
+      <h1>{score}</h1>
+      <button onClick={() => setScore(score + 1)}>
+        Add one
+      </button>
+    </div>
+  );
+}
+```
+
+각각의 `Counter` 컴포넌트는 트리 구조 내에서 고유한 위치에 렌더링 되어 있으므로 서로 분리된 컴포넌트다. 따라서 각 컴포넌트는 독립된 `score`와 `hover` state를 갖는다. 즉, 한 쪽의 상태 변경이 다른 한 쪽에 영향을 주지 않는다.
+
+그러나 두 `Counter` 컴포넌트의 `score` 값을 각각 증가시키고 체크박스를 클릭해 두 번째 `Counter` 컴포넌트를 제거하면(조건부 렌더링) 제거된 컴포넌트의 `score` state는 초기화 된다.
+
+React는 컴포넌트가 UI 트리에서 그 자리에 렌더링 되는 한 state를 유지한다. 만약 컴포넌트를 제거하거나 같은 자리에 다른 컴포넌트가 렌더링 되는 경우 React는 그 state를 버린다.
+
+### 같은 자리에 같은 컴포넌트가 위치하면 state는 보존된다
+같은 자리에 같은 컴포넌트가 렌더링되는 경우 React는 state를 유지한다. 아래의 코드는 체크박스 클릭 시 `isFancy` state 값이 변경되어 다시 렌더링 된다. 이 때 `Counter` 컴포넌트는 서로 다른 컴포넌트다.
+
+```javascript
+import { useState } from 'react';
+
+export default function App() {
+  const [isFancy, setIsFancy] = useState(false);
+  return (
+    <div>
+      {isFancy ? (
+        <Counter isFancy={true} />
+      ) : (
+        <Counter isFancy={false} />
+      )}
+      <label>
+        <input
+          type="checkbox"
+          checked={isFancy}
+          onChange={e => {
+            setIsFancy(e.target.checked)
+          }}
+        />
+        Use fancy styling
+      </label>
+    </div>
+  );
+}
+
+function Counter({ isFancy }) {
+  const [score, setScore] = useState(0);
+  const [hover, setHover] = useState(false);
+
+  let className = 'counter';
+  if (hover) {
+    className += ' hover';
+  }
+  if (isFancy) {
+    className += ' fancy';
+  }
+
+  return (
+    <div
+      className={className}
+      onPointerEnter={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
+    >
+      <h1>{score}</h1>
+      <button onClick={() => setScore(score + 1)}>
+        Add one
+      </button>
+    </div>
+  );
+}
+```
+
+`isFancy` state 값에 따라 서로 다른 `Counter` 컴포넌트가 렌더링 되지만 `score` state는 유지된다. `Counter` 컴포넌트는 `isFancy`의 값과 관계 없이 root인 `App` 컴포넌트가 반환한 `div`의 첫 번째 자식 위치에 있다. 따라서 `App` 컴포넌트가 갱신되더라도 `Counter` 컴포넌트의 상태를 초기화하지 않는다. 즉, React의 관점에서 첫 번째 자리에 위치의 같은 컴포넌트이기 때문에 같은 `Counter` 컴포넌트다.
+
+### 같은 자리에 다른 컴포넌트가 위치하면 state는 초기화 된다
+
+아래와 같이 조건부 렌더링의 코드를 변경하는 경우 `isFancy` state 값이 업데이트가 되어 다시 렌더링 될 때 `score` state는 초기화 된다.
+
+```jsx
+{isFancy ? (
+  <div>
+    <Counter isFancy={true} />
+  </div>
+ ) : (
+  <section>
+    <Counter isFancy={false} />
+  </section>
+ )}
+```
+
+즉, 리렌더링 시 state를 유지하려면 트리 구조가 **같아야** 한다. 이것은 컴포넌트 함수를 중첩해서 정의하면 안 되는 이유이기도 하다.
+
+```javascript
+import { useState } from 'react';
+
+export default function MyComponent() {
+  const [counter, setCounter] = useState(0);
+
+  function MyTextField() {
+    const [text, setText] = useState('');
+
+    return (
+      <input
+        value={text}
+        onChange={e => setText(e.target.value)}
+      />
+    );
+  }
+
+  return (
+    <>
+      <MyTextField />
+      <button onClick={() => {
+        setCounter(counter + 1)
+      }}>Clicked {counter} times</button>
+    </>
+  );
+}
+```
+
+위의 코드를 보면 `MyComponent` 내부에 `MyTextField` 컴포넌트가 있다. 이 경우 `MyConponent`가 렌더링 될 때마다 다른 `MyTextField` 함수가 만들어진다. 따라서 `MyComponent`의 카운터 버튼을 클릭할 때마다 `MyTextField`의 input 입력값(`text`)는 초기화 된다.
+
+### 같은 위치에서 state를 초기화 하기
+기본적으로 React는 컴포넌트가 렌더 트리에서 같은 위치를 유지하면 state를 보존한다. 그러나 같은 위치에 있더라도 컴포넌트 state를 초기화 해야 하는 경우에는 어떻게 할 수 있을까?
+
+```javascript
+export default function Scoreboard() {
+  const [isPlayerA, setIsPlayerA] = useState(true);
+  return (
+    <div>
+      {isPlayerA ? (
+        <Counter person="Taylor" />
+      ) : (
+        <Counter person="Sarah" />
+      )}
+      <button onClick={() => {
+        setIsPlayerA(!isPlayerA);
+      }}>
+        Next player!
+      </button>
+    </div>
+  );
+}
+```
+
+`Counter` 컴포넌트에 props로 `person`을 전달하고 있다. 이 경우 부모 컴포넌트인 `Scoreboard`의 `isPlayerA` state가 변경될 때 리렌더링이 트리거 된다. 이 때 `Counter` 컴포넌트는 `div`의 첫 번째 자식 위치에 있으므로 두. `Counter` 컴포넌트는 `person` props가 변경된 동일한 컴포넌트로 간주되어 `score` state가 유지된다.
+
+`isPlayerA` state 업데이트로 `Counter` 컴포넌트를 바꿀 때 state를 초기화 하도록 하려면 두 가지 방법이 있다.
+1. 다른 위치에 컴포넌트를 렌더링한다.
+2. 각 컴포넌트에 명시적인 식별자(`key`)를 제공한다.
+
+다른 위치에 컴포넌트를 렌더링하는 방법으로 문제를 해결하려면 다음과 같이 코드를 수정한다.
+
+```javascript
+export default function Scoreboard() {
+  const [isPlayerA, setIsPlayerA] = useState(true);
+  return (
+    <div>
+      {isPlayerA &&
+        <Counter person="Taylor" />
+      }
+      {!isPlayerA &&
+        <Counter person="Sarah" />
+      }
+      <button onClick={() => {
+        setIsPlayerA(!isPlayerA);
+      }}>
+        Next player!
+      </button>
+    </div>
+  );
+}
+```
+
+컴포넌트를 조건부 렌더링 할 때 삼항 연산자(`? :`)를 사용하는 것과 논리 연산자(`&&`)를 사용하는 것은 차이가 있다. 두 방식 모두 항상 하나의 `Counter` 컴포넌트만 렌더링 된다는 공통점이 있다.
+
+그러나 삼항 연산자를 사용하면 항상 하나의 표현식이 평가된다. `isPlayserA`가 `true`면 첫 번째 표현식이, `false`면 두 번째 표현식이 평가된다. 논리 연산자를 사용하면 두 개의 독립적인 조건이 평가된다. 따라서 React는 `Counter` 컴포넌트가 서로 다른 위치에 존재하는 것으로 판단한다.
+
+각 컴포넌트에 명시적인 식별자(`key`)를 제공하는 방법으로 문제를 해결할 수도 있다. React에서 `key`는 React가 컴포넌트를 구분할 수 있도록 한다. 기본적으로 React는 컴포넌트를 구별하기 위해 렌더 트리의 위치(부모 안에서의 순서)를 이용한다. 그러나 `key`를 이용하면 단지 첫 번째, 혹은 두 번째 `Counter` 컴포넌트가 아니라 특정한 컴포넌트임을 명시할 수 있다.
+
+```javascript
+export default function Scoreboard() {
+  const [isPlayerA, setIsPlayerA] = useState(true);
+  return (
+    <div>
+      {isPlayerA ? (
+        <Counter key="Taylor" person="Taylor" />
+      ) : (
+        <Counter key="Sarah" person="Sarah" />
+      )}
+      <button onClick={() => {
+        setIsPlayerA(!isPlayerA);
+      }}>
+        Next player!
+      </button>
+    </div>
+  );
+}
+```
+
+`key`를 명시하면 React는 부모 내에서의 순서 대신 `key` 자체를 위치의 일부로 사용한다. 따라서 컴포넌트가 나타날 때 state가 새로 만들어지고, 화면에서 제거되면 state 역시 제거된다.
+
+`key`를 이용해 state를 초기화하는 것은 특히 form을 다룰 때 유용하다.
+
+```javascript
+export default function Messenger() {
+  const [to, setTo] = useState(contacts[0]);
+  return (
+    <div>
+      <ContactList
+        contacts={contacts}
+        selectedContact={to}
+        onSelect={contact => setTo(contact)}
+      />
+      <Chat contact={to} />
+    </div>
+  )
+}
+
+const contacts = [
+  { id: 0, name: 'Taylor', email: 'taylor@mail.com' },
+  { id: 1, name: 'Alice', email: 'alice@mail.com' },
+  { id: 2, name: 'Bob', email: 'bob@mail.com' }
+];
+```
+
+`Chat` 컴포넌트는 `text` state를 가지고 있다. `to` state가 업데이트 되어 `Messenger` 컴포넌트가 리렌더링 되더라도 `Chat` 컴포넌트는 동일한 위치에 존재하기 때문에 `text` state가 초기화 되지 않는다.
+
+이 경우 `Chat` 컴포넌트에 `key`를 설정한다면 수신자를 변경할 때마다 입력값(`text` state)가 초기화 된다.
+
+### 제거된 컴포넌트의 state 보존하기
+위의 `Messenger` 컴포넌트 예제에서 `Chat` 컴포넌트에 `key`를 지정하면 수신자를 변경할 때마다 입력값이 초기화 된다. 만약 컴포넌트가 제거 되더라도 state를 보존하려면 어떻게 해야 할까?
+
+현재 채팅만 렌더링하는 대신 모든 채팅을 렌더링하고 CSS로 보이지 않도록 할 수 있다. `Chat` 컴포넌트가 렌더 트리에서 제거되는 것이 아니기 때문에 state가 유지된다. 그러나 이런 방식으로 숨겨진 트리가 크고 많은 DOM 노드를 가지고 있다면 매우 느려질 것이다.
+
+state를 상위로 올리고 각 수신자의 임시 메세지를 부모 컴포넌트에서 관리하도록 할 수 있다. 부모가 정보를 가지고 있기 때문에 자식 컴포넌트가 제거되더라도 데이터를 유지할 수 있다. 이는 가장 일반적인 해법이다.
+
+React state 이외의 다른 저장소를 이용할 수 있다. 사용자가 실수로 페이지를 닫아도 데이터가 유지되도록 하고 싶다면 `localStorage`에 메시지를 저장하고, 이를 통해 `Chat` 컴포넌트를 초기화 할 수 있다.
+
+그러나 중요한 것은 어떤 방법을 선택하더라도 수신자가 다른 각 채팅은 **개념상 서로 구별되어야** 한다. 따라서 현재 수신자를 기반으로 `Chat` 컴포넌트에 `key`를 설정하는 것이 타당하다.
+
+
+## reducer로 state 로직 통합하기
+하나의 컴포넌트에서 state 업데이트가 여러 이벤트 핸들러로 분산되는 경우가 있다. 이 경우 컴포넌트 관리 난이도가 올라간다. 이 문제를 해결하기 위해 state를 업데이트 하는 모든 로직을 컴포넌트 외부의 단일 함수로 통합할 수 있다.
+
+state가 여러 이벤트 핸들러를 통해 업데이트 되는 케이스는 다음과 같다. 컴포넌트에 정의된 state는 `tasks` 하나다. 그러나 내부적으로 `handleAddTask()`, `handleChangeTask()`, `handleDeleteTask()`와 같은 여러 개의 이벤트 핸들러 함수를 통해 state가 업데이트 된다. 각 이벤트 핸들러는 내부적으로 `setTasks`를 호출한다.
+
+```javascript
+import { useState } from 'react';
+import AddTask from './AddTask.js';
+import TaskList from './TaskList.js';
+
+export default function TaskApp() {
+  const [tasks, setTasks] = useState(initialTasks);
+
+  function handleAddTask(text) {
+    setTasks([...tasks, {
+      id: nextId++,
+      text: text,
+      done: false
+    }]);
+  }
+
+  function handleChangeTask(task) {
+    setTasks(tasks.map(t => {
+      if (t.id === task.id) {
+        return task;
+      } else {
+        return t;
+      }
+    }));
+  }
+
+  function handleDeleteTask(taskId) {
+    setTasks(
+      tasks.filter(t => t.id !== taskId)
+    );
+  }
+
+  return (
+    <>
+      <h1>Prague itinerary</h1>
+      <AddTask
+        onAddTask={handleAddTask}
+      />
+      <TaskList
+        tasks={tasks}
+        onChangeTask={handleChangeTask}
+        onDeleteTask={handleDeleteTask}
+      />
+    </>
+  );
+}
+
+let nextId = 3;
+const initialTasks = [
+  { id: 0, text: 'Visit Kafka Museum', done: true },
+  { id: 1, text: 'Watch a puppet show', done: false },
+  { id: 2, text: 'Lennon Wall pic', done: false },
+];
+```
+
+컴포넌트가 커질수록 내부적으로 state를 다루는 로직의 양 역시 늘어나게 된다. 복잡성을 줄이고 접근성을 높이기 위해 컴포넌트 내부의 state 관련 로직을 컴포넌트 외부의 reducer 단일 함수로 옮길 수 있다.
+
+reducer는 state를 다루는 또 다른 방법이다. 다음 세 단계를 거쳐 `useState`를 `useReducer`로 변경할 수 있다.
+
+1. state를 설정하는 대신 action을 `dispatch()` 함수에 전달한다.
+2. reducer 함수를 작성한다.
+3. 컴포넌트에서 작성한 reducer 함수를 사용한다.
+
+### state를 설정하는 대신 action을 dispatch 함수에 전달
+현재 이벤트 핸들러는 `setTasks()`를 실행해 무엇을 할 것인지, state를 어떻게 업데이트 할 것인지를 명시하고 있다.
+
+```javascript
+function handleAddTask(text) {
+  setTasks([...tasks, {
+    id: nextId++,
+    text: text,
+    done: false
+  }]);
+}
+
+function handleChangeTask(task) {
+  setTasks(tasks.map(t => {
+    if (t.id === task.id) {
+      return task;
+    } else {
+      return t;
+    }
+  }));
+}
+
+function handleDeleteTask(taskId) {
+  setTasks(
+    tasks.filter(t => t.id !== taskId)
+  );
+}
+```
+
+- 사용자가 ‘Add’ 버튼을 눌렀을 때 호출되는 `handleAddTask(text)`
+- 사용자가 task를 토글하거나 저장하면 호출되는 `handleChangeTask(task)`
+- 사용자가 ‘Delete’ 버튼을 누르면 호출되는 `handleDeleteTask(taskId)`
+
+reducer를 통한 state 관리는 state를 직접 설정해 무엇을 할지 지시하는 대신 이벤트 핸들러에 action을 전달해 **사용자가 방금 한 일**을 전달한다. 즉, 이벤트 핸들러를 통해 `tasks`를 설정하는 대신 task를 추가, 변경, 삭제하는 action을 전달하는 것이다. 그러면 사용자의 **의도**를 더 명확하게 설명할 수 있다.
+
+```javascript
+function handleAddTask(text) {
+  dispatch({
+    type: 'added',
+    id: nextId++,
+    text: text,
+  });
+}
+
+function handleChangeTask(task) {
+  dispatch({
+    type: 'changed',
+    task: task
+  });
+}
+
+function handleDeleteTask(taskId) {
+  dispatch({
+    type: 'deleted',
+    id: taskId
+  });
+}
+```
+
+이 때 `diapatch()` 함수에 전달한 객체가 action이다. action 객체는 일반적인 JavaScript 객체다. 어떤 데이터든 들어갈 수 있지만 일반적으로 어떤 상황이 발생하는지에 대한 최소한의 정보를 담고 있어야 한다.
+
+### reducer 함수 작성
+state에 대한 로직은 reducer 함수에 작성한다.
+
+```javascript
+function yourReducer(state, action) {
+  // React가 설정하게 될 다음 state 값을 반환한다.
+}
+```
+
+React는 reducer에서 반환한 값을 state에 설정한다.
+
+```javascript
+function tasksReducer(tasks, action) {
+  switch (action.type) {
+    case 'added': {
+      return [...tasks, {
+        id: action.id,
+        text: action.text,
+        done: false
+      }];
+    }
+    case 'changed': {
+      return tasks.map(t => {
+        if (t.id === action.task.id) {
+          return action.task;
+        } else {
+          return t;
+        }
+      });
+    }
+    case 'deleted': {
+      return tasks.filter(t => t.id !== action.id);
+    }
+    default: {
+      throw Error('Unknown action: ' + action.type);
+    }
+  }
+}
+```
+
+reducer 함수는 state(`tasks`)를 인자로 받고 있기 때문에 이를 컴포넌트 외부에 선언할 수 있다.
+
+> reducer를 사용하면 컴포넌트 내부의 코드 양을 줄일 수 있지만, 이 이름은 배열에서 사용하는 `reduce()` 연산의 이름을 따서 만들었다.
+> `reduce()`는 배열의 여러 값을 단일 값으로 **누적**하는 연산을 수행한다.
+> ```JavaScript
+> const arr = [1, 2, 3, 4, 5];
+> const sum = arr.reduce(
+> . (result, number) => result + number
+> );	// 1 + 2 + 3 + 4 + 5
+> ```
+> 이 함수는 지금까지의 결과(`result`)와 현재 아이템(`number`)를 인자로 받아 다음 결과를 반환한다.
+> React의 reducer 역시 지금까지의 state와 action을 인자로 받아 다음 state를 반환한다. 이 과정에서 여러 action을 누적해 state로 반환한다.
+
+### 컴포넌트에서 reducer 사용
+작성한 reducer 함수를 컴포넌트에 연결한다.
+
+```JavaScript
+const [tasks, dispatch] = useReducer(tasksReducer, initialTasks);
+```
+
+`useReducer()` 훅은 초기 state 값을 입력받아 stateful한 값을 반환한다는 점과, state를 설정하는 함수의 원리를 생각하면 `useState()`와 비슷하다. 그러나 차이가 있다.
+
+`useReducer()` 훅은 두 개의 인자를 받는다.
+1. reducer 함수
+2. 초기 state 값
+그리고 다음을 반환한다.
+1. state를 담을 수 있는 값
+2. dispatch 함수(사용자의 action을 reducer 함수에 전달하게 될)
+
+결과적으로 `useReducer()` 훅을 이용해 state를 업데이트하는 복잡한 로직의 구현부를 컴포넌트로부터 분리하는 것은 **관심사를 분리**하는 작업이다. 즉, 이벤트 핸들러는 action을 전달해 발생한 일(일어난 일)을 명시하면 되고, reducer 함수는 각 상황에 대한 응답으로 state가 어떤 값으로 업데이트 되어야 할 지 결정해 반환하면 된다.
+
+reducer 함수는 반드시 순수해야 한다. state batch 업데이트 함수와 비슷하게 reducer 함수는 컴포넌트 렌더링 도중에 실행된다. 즉, 입력값이 동일할 때 결과값도 동일해야 한다. 외부로 요청을 보내거나 timeout을 스케줄링, 컴포넌트 외부의 변경에 관여하는 등의 작업을 수행해서는 안된다. reducer는 객체와 배열을 변이 없이 업데이트해야 한다.
+
+또, 각 action은 데이터 안에서 여러가지 변경이 일어나더라도 하나의 사용자 상호작용을 설명해야 한다. 예를 들어 5개의 입력값이 있는 form을 재설정하는 경우, 5개의 개별 action(e.g. `set_field` action) 보다는 하나의 `reset_form` action을 전송하도록 하는 것이 더 합리적이다. 모든 action을 reducer에 기록하면 사용자 상호작용이나 응답이 어떤 순서로 발생했는지 재구성할 수 있을 만큼 로그가 명확해야 한다.
+
+
+## Context로 데이터를 깊게 전달하기
+부모 컴포넌트에서 자식 컴포넌트로 props를 통해 데이터를 전달할 때, 다음 상황에 대해 고려해볼 수 있다. 부모와 자식 컴포넌트 사이에 많은 컴포넌트가 존재하거나 애플리케이션의 많은 컴포넌트에서 동일한 데이터가 필요한 경우 props를 데이터를 하위로 전달하는 것은 상당히 불편하다. 이 때 Context를 사용하면 명시적으로 props를 전달하지 않아도 부모 컴포넌트 트리에 있는 자식 컴포넌트라면 깊이에 상관없이 동일한 데이터를 공유할 수 있다.
+
+즉, **Prop drilling** 문제를 효과적으로 해결할 수 있다.
+
+아래의 `Page` 컴포넌트는 `Section` 컴포넌트 내에 `Heading` 컴포넌트가 중첩된 형태다.
+
+```javascript
+import Heading from './Heading.js';
+import Section from './Section.js';
+
+export default function Page() {
+  return (
+    <Section>
+      <Heading level={1}>Title</Heading>
+      <Section>
+        <Heading level={2}>Heading</Heading>
+        <Heading level={2}>Heading</Heading>
+        <Heading level={2}>Heading</Heading>
+        <Section>
+          <Heading level={3}>Sub-heading</Heading>
+          <Heading level={3}>Sub-heading</Heading>
+          <Heading level={3}>Sub-heading</Heading>
+          <Section>
+            <Heading level={4}>Sub-sub-heading</Heading>
+            <Heading level={4}>Sub-sub-heading</Heading>
+            <Heading level={4}>Sub-sub-heading</Heading>
+          </Section>
+        </Section>
+      </Section>
+    </Section>
+  );
+}
+```
+
+`Heading` 컴포넌트는 props로 `level`을 받는다. 이 데이터를 기반으로 각 `Heading` 컴포넌트의 텍스트 사이즈가 결정된다.
+
+`Section`의 depth가 깊어질 수록 `Heading`의 크기는 작아져야 한다. 또, `Section` 내의 모든 `Heading`은 동일한 `level` 값을 갖는다. 그렇다면 모든 `Heading` 컴포넌트에 `level` 값을 props로 전달하는 것이 아니라 `Section` 컴포넌트에 전달된 `level` props를 전달해 `Heading`의 크기를 조절하는 것이 더 간결하다.
+
+```jsx
+<Section level={3}>
+  <Heading>About</Heading>
+  <Heading>Sites</Heading>
+  <Heading>Contact</Heading>
+</Section>
+```
+
+문제는 현재 `Heading` 컴포넌트가 가장 가까운 `Section` 컴포넌트의 `level` 값을 알 수 있는 방법이 없다는 것이다. 이것이 가능하려면 자식 컴포넌트가 트리 위 어딘가에 있는 데이터를 **요청**해야 한다. 이러한 동작을 가능하게 하는 것이 Context다.
+
+1. Context를 생성한다.
+2. 데이터가 필요한 컴포넌트에서 Context를 사용한다.
+3. 데이터를 지정하는 컴포넌트에서 Context를 제공한다.
+
+### Context 생성
+context를 외부에 만들고, 이를 컴포넌트에서 사용할 수 있도록 내보낸다.
+
+```javascript
+// LevelContext.js
+import { createContext } from 'react';
+
+export const LevelContext = createContext(1);
+```
+
+`createContext()`의 유일한 인자는 기본값이다.
+
+### Context 사용
+`useContext()` 훅을 데이터가 필요한 컴포넌트 내부에 선언한다.
+
+```javascript
+export default function Heading({ children }) {
+  const level = useContext(LevelContext);
+  // ...
+}
+```
+
+따라서 `Heading` 컴포넌트는 더이상 `level` props를 받지 않아도 된다. 위에서 가져온 context를 통해 `level` 값을 얻을 수 있기 때문이다.
+
+### Context 제공
+데이터가 필요한 컴포넌트에서 context를 사용할 수 있도록 `level` 데이터를 가지고 있는 상위 컴포넌트에서는 context를 제공해야 한다.
+
+기존의 `Section` 컴포넌트는 단순히 `children`을 props로 받아 하위 컴포넌트를 렌더링한다.
+
+```javascript
+export default function Section({ children }) {
+  return (
+    <section className="section">
+      {children}
+    </section>
+  );
+}
+```
+
+`LevelContext`를 하위 컴포넌트에게 제공하기 위해 하위 컴포넌트를 context provider로 감싼다.
+
+```javascript
+import { LevelContext } from './LevelContext.js';
+
+export default function Section({ level, children }) {
+  return (
+    <section className="section">
+      <LevelContext.Provider value={level}>
+        {children}
+      </LevelContext.Provider>
+    </section>
+  );
+}
+```
+
+이렇게 provider로 감싸는 것은 React에게 다음을 인지시킨다. `Section` 내의 어떤 하위 컴포넌트는 `LevelContext`를 요구할 것이고, 그 경우 `level` 값을 전달해야 한다. 그러면 하위 컴포넌트는 UI 트리에서 가장 가까운 상위 컴포넌트의 `<LevelContext.Provider>`의 값을 사용한다.
+
+즉, 데이터를 내려주는 것이 아니라 필요한 쪽에서 상위의 데이터를 요청하는 형태다.
+
+하위 컴포넌트가 필요한 값을 UI 트리에서 찾을 때 **가장 가까운 상위 컴포넌트**의 값을 사용한다는 것을 이용하면 다음과 같이 컴포넌트를 구성할 수도 있다.
+
+```javascript
+import { useContext } from 'react';
+import { LevelContext } from './LevelContext.js';
+
+export default function Section({ children }) {
+  const level = useContext(LevelContext);
+  return (
+    <section className="section">
+      <LevelContext.Provider value={level + 1}>
+        {children}
+      </LevelContext.Provider>
+    </section>
+  );
+}
+```
+
+`Section` 컴포넌트는 중첩되어 있으므로, 최초 `createContext()` 작성 시에 설정한 기본값(1)부터 출발한다. 가장 바깥의 `Section` 하위의 `Heading`은 기본값인 1을 전달 받지만, depth가 깊어짐에 따라 `1 + 1`, `2 + 1` 값을 전달받게 된다.  가장 가까운 상위 컴포넌트의 값을 사용하기 때문에 이와 같이 동작한다. 그렇다면 이 경우에는 `Section` 컴포넌트에 props로 `level` 값을 전달하지 않아도 된다.
+
+즉, 하위 컴포넌트는 context를 오버라이드 할 수 있다.
+
+그렇다면 데이터를 공유하는 컴포넌트 사이에 여러 컴포넌트가 있는 경우 Context를 사용하는 것이 반드시 유리할까? Context를 사용하기 전에 다음 대안을 먼저 생각해야 한다.
+
+1. Props를 전달하는 것으로 우선 시작한다.
+2. 컴포넌트를 추출하고 JSX를 `children`으로 전달한다. 데이터를 사용하지 않는 중간 컴포넌트를 통해 단순히 depth가 깊어진 경우에는 이 방식이 유리할 수 있다.
+
+
+## Reducer와 Context
+Reducer는 컴포넌트의 state 업데이트를 통합하고, Context는 다른 컴포넌트에 정보를 전달한다. 이를 결합해 사용하면 어떤 이점을 얻을 수 있을까?
+
+아래 `TaskApp` 컴포넌트를 보면 내부적으로 `tasks` state를 `useReducer()`로 업데이트 하고 있다.
+
+```javascript
+export default function TaskApp() {
+  const [tasks, dispatch] = useReducer(
+    tasksReducer,
+    initialTasks
+  );
+
+  function handleAddTask(text) {
+    dispatch({
+      type: 'added',
+      id: nextId++,
+      text: text,
+    });
+  }
+
+  function handleChangeTask(task) {
+    dispatch({
+      type: 'changed',
+      task: task
+    });
+  }
+
+  function handleDeleteTask(taskId) {
+    dispatch({
+      type: 'deleted',
+      id: taskId
+    });
+  }
+
+  return (
+    <>
+      <h1>Day off in Kyoto</h1>
+      <AddTask
+        onAddTask={handleAddTask}
+      />
+      <TaskList
+        tasks={tasks}
+        onChangeTask={handleChangeTask}
+        onDeleteTask={handleDeleteTask}
+      />
+    </>
+  );
+}
+```
+
+현재 `tasks` state와 `dispatch` 함수는 최상위 컴포넌트인 `TaskApp`에서만 사용할 수 있다. 만약 하위 컴포넌트가 `tasks`를 참조하거나 업데이트 하려면 `tasks` state와 `dispatch` 함수를 props로 전달 받아야 한다.
+
+```jsx
+<TaskList
+  tasks={tasks}
+  onChangeTask={handleChangeTask}
+  onDeleteTask={handleDeleteTask}
+/>
+```
+
+```jsx
+<Task
+  task={task}
+  onChange={onChangeTask}
+  onDelete={onDeleteTask}
+/>
+```
+
+실제로 `tasks`를 변경하는 작업은 `Task` 컴포넌트에서 이루어지는데, 이를 위해 `tasks`와 `dispatch` 함수를 props로 계속해서 전달해야 한다.
+
+props로 이를 전달하는 대신 Context를 사용하면 `TaskApp` 하위의 모든 컴포넌트가 `tasks` state와 `dispatch` 함수를 참조할 수 있을 것이다.
+
+```javascript
+// TasksContext.js
+import { createContext } from 'react';
+
+export const TasksContext = createContext(null);
+export const TasksDispatchContext = createContext(null);
+```
+```
+```javascript
+import { TasksContext, TasksDispatchContext } from './TasksContext.js';
+
+export default function TaskApp() {
+  const [tasks, dispatch] = useReducer(tasksReducer, initialTasks);
+  // ...
+  return (
+    <TasksContext.Provider value={tasks}>
+      <TasksDispatchContext.Provider value={dispatch}>
+        ...
+      </TasksDispatchContext.Provider>
+    </TasksContext.Provider>
+  );
+}
+```
+
+`tasks`와 `dispatch`에 대한 context를 작성하고, `TaskApp` 컴포넌트에서 provider로 감싼다. `createContext()`로 context를 생성할 대 명시한 기본값은 `null`이지만, `TasksApp` 컴포넌트에서 context에 전달될 값을 지정한다.
+
+그러면 하위 컴포넌트에서 `tasks` state와 `dispatch` 함수를 전달 받을 수 있게 된다. 결과적으로 `TaskApp` 컴포넌트는 이벤트 핸들러를 하위로 전달하지 않는다. state는 여전히 최상위 컴포넌트인 `TaskApp`에서 `useReducer()`로 관리되고 있다.
+
+`TaskProvider` 컴포넌트를 새로 만들고, `children`을 props로 받도록 하면 provider 부분을 `TaskApp` 컴포넌트에서 분리할 수 있다.
+
+```javascript
+export function TasksProvider({ children }) {
+  const [tasks, dispatch] = useReducer(tasksReducer, initialTasks);
+
+  return (
+    <TasksContext.Provider value={tasks}>
+      <TasksDispatchContext.Provider value={dispatch}>
+        {children}
+      </TasksDispatchContext.Provider>
+    </TasksContext.Provider>
+  );
+}
+```
+
+여전히 Reducer로 state를 관리하고, 두 context를 하위 컴포넌트에 제공한다. `children`을 prop으로 받기 때문에 JSX를 전달할 수 있다.
+
+결과적으로 `TaskApp` 컴포넌트는 다음과 같은 형태가 된다.
+
+```javascript
+import AddTask from './AddTask.js';
+import TaskList from './TaskList.js';
+import { TasksProvider } from './TasksContext.js';
+
+export default function TaskApp() {
+  return (
+    <TasksProvider>
+      <h1>Day off in Kyoto</h1>
+      <AddTask />
+      <TaskList />
+    </TasksProvider>
+  );
+}
+```
