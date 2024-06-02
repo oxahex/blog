@@ -1,0 +1,467 @@
+---
+slug: react-escape-hatches
+title: "React Escape Hatches"
+description: "React의 매커니즘을 벗어나는 useRef와 useEffect"
+author: oxahex
+createdAt: 2024-06-02
+tags: ["react"]
+---
+
+React 공식 문서는 `useRef`와 `useEffect` 훅을 설명할 때, 이를 **Escape Hatches**라고 설명한다. 이 훅들은 React의 선언적 모델을 벗어나 보다 직접적인 방식으로 DOM이나 외부 시스템과 상호작용할 수 있는 방법을 제공하기 때문이다.
+
+이러한 **탈출구**는 왜 필요할까?
+**직접 DOM을 조작해야 하는 경우**가 있다. 포커스를 특정 필드로 이동하거나, 스크롤 위치를 조정하는 등의 작업이 그렇다.
+
+> React는 선언적 접근 방식을 사용해 UI를 구성한다. 직접 DOM을 조작하는 것이 아니라 컴포넌트의 상태를 기반으로 UI가 어떻게 보여야 하는지 선언한다.
+
+**사이드 이펙트, 또는 비동기 작업을 처리해야 하는 경우**가 있다. 여기서의 사이트 이펙트란 네트워크 요청, 타이머 설정(함수의 실행이 끝난 이후에도 외부 상태에 영향을 미치는 비동기 작업이 발생하는)과 같이 함수가 호출될 때, 그 함수의 외부 상태를 변경하거나 함수의 입출력 이외의 다른 부분에 영향을 미치는 것을 의미한다. 즉 사이드 이펙트는 순수 함수와 반대되는 개념이다.
+
+**외부 시스템과의 상호작용이 필요한 경우**가 있다. 애플리케이션이 브라우저 API, 비디오 플레이어, 웹 소켓과 같은 외부 시스템은 React의 선언적 모델 바깥에 존재한다.
+
+
+## Ref로 데이터 참조
+`useRef`의 목적은 React 컴포넌트에서 DOM 요소에 대한 참조를 생성하고 값을 유지하는 데 있다. `useRef`는 컴포넌트의 상태를 변경하지 않기 때문에 값이 변경되더라도 렌더링이 트리거되지 않는다.
+
+```javascript
+const ref = useRef(0);
+```
+
+위와 같이 `useRef` 훅으로 컴포넌트에 `ref`를 추가하면, `useRef`는 다음 객체를 반환한다.
+
+```javascript
+{
+  current: 0		// useRef에 전달한 값
+}
+```
+
+따라서 `ref.current` 프로퍼티를 통해 `ref`의 `current` 값에 접근할 수 있다.
+
+하나의 컴포넌트 내에서 Ref와 state(상태)를 동시에 사용할 수 있다. 이는 컴포넌트 내에서 DOM 요소에 대한 참조를 유지하면서 동시에 상태를 관리할 수 있음을 의미한다.
+
+아래 `Stopwatch` 컴포넌트는 사용자가 ‘Start’ 버튼을 누르면 타이머가 시작되고, ‘Stop’ 버튼을 누르면 타이머가 멈춘다.
+
+```javascript
+import { useState } from 'react';
+
+export default function Stopwatch() {
+  const [startTime, setStartTime] = useState(null);
+  const [now, setNow] = useState(null);
+
+  function handleStart() {
+    // 카운팅을 시작합니다.
+    setStartTime(Date.now());
+    setNow(Date.now());
+
+    setInterval(() => {
+      // 10ms 마다 현재 시간을 업데이트 합니다.
+      setNow(Date.now());
+    }, 10);
+  }
+
+  let secondsPassed = 0;
+  if (startTime != null && now != null) {
+    secondsPassed = (now - startTime) / 1000;
+  }
+
+  return (
+    <>
+      <h1>Time passed: {secondsPassed.toFixed(3)}</h1>
+      <button onClick={handleStart}>
+        Start
+      </button>
+    </>
+  );
+}
+```
+
+‘Start’ 버튼을 눌렀을 때 `startTime`과 `now` state에 현재 시각을 업데이트 하고, 10ms 마다 `now`를 업데이트 한다. 이 때 `Start’ 버튼을 다시 누르면 두 state는 초기화되고 타이머 역시 0으로 돌아간다.
+
+만약 ‘Stop’ 버튼을 눌렀을 때, 타이머를 정지하려면 어떻게 해야 할까? 우선 ’Stop’ 버튼을 눌렀을 때, `now` state 업데이트가 중지되어야 한다. 이를 위해 `clearInterval()`를 호출할 수 있다. 그러나 버튼을 클릭한 시점의 Interval ID(`setInterval()` 함수의 반환값)를 제공해야 한다.
+
+```javascript
+const intervalRef = useRef(null);
+
+function handleStart() {
+  setStartTime(Date.now());
+  setNow(Date.now());
+
+  clearInterval(intervalRef.current);
+  intervalRef.current = setInterval(() => {
+    setNow(Date.now());
+  }, 10);
+}
+
+function handleStop() {
+  clearInterval(intervalRef.current);
+}
+```
+
+이 때 Interval ID는 컴포넌트 렌더링과 관계가 없는 데이터다. 이를 Ref에 보관할 수 있다. 렌더링에 필요한 정보라면 state로 관리하지만, 렌더링과 무관하고 이벤트 핸들러에서만 필요한 정보라면 Ref로 관리하는 것이 더 효율적일 수 있다.
+
+내부적으로 Ref는 어떻게 동작할까? `useRef`의 반환값은 객체다. Ref로 저장한 값은 항상 `ref.current`를 통해 접근해야 한다. 왜 그럴까?
+
+```javascript
+function useRef(initialValue) {
+  const [ref, unused] = useState({ current: initialValue });
+  return ref;
+}
+```
+
+이 경우 `ref` state는 객체다. `{ current: initialValue }`를 반환한다. 이 때 `ref.current = ‘another'`로 값을 변경하더라도 동일한 객체가 반환된다.
+
+렌더링 중에 `ref.current`를 읽거나 업데이트하지 않아야 한다. 데이터가 렌더링에 필요한 값이라면 state를 사용해야 한다. React는 `ref.current`가 언제 변경되는지 알 수 없다. 즉, state와 같이 스냅샷으로 동작하지 않고 다음 렌더링이 큐에 들어가지 않는다. ref는 일반 자바스크립트 객체처럼 동작하기 때문에 `ref.current` 값을 변경하면 즉각적으로 변경된다.
+
+
+## Ref로 DOM 조작
+React는 렌더링 결과물에 맞춰 DOM 변경을 처리하기 때문에 컴포넌트에서 DOM을 직접 조작해야 하는 경우는 많지 않다. 그러나 가끔 특정 노드에 포커스를 옮기거나, 스크롤 위치를 옮기거나, 위치와 크기를 측정해야 할 때 React가 관리하는 DOM 요소에 접근해야 할 때가 있다.
+
+### ref로 노드 가져오기
+JSX 태그에 `ref` 어트리뷰트를 지정해 특정 DOM 노드를 `ref.current`에 저장할 수 있다.
+
+```jsx
+<div ref={myRef}>
+```
+
+`useRef` 훅은 `current`라는 단일 속성을 가진 객체를 반환한다. `useRef`의 초기값을 `null`로 주더라도 React는 `div`에 대한 DOM 노드를 생성할 때 이 노드에 대한 참조를 `ref.current`에 할당한다.
+
+하나의 컴포넌트에서 하나 이상의 ref를 가질 수 있다. 만약 컴포넌트에서 몇 개의 ref가 필요할지 예측할 수 없는 경우 어떻게 해야 할까? 다음 코드는 동작하지 않는다.
+
+```jsx
+<ul>
+  {items.map((item) => {
+    const ref = useRef(null);
+    return <li ref={ref} />;
+  })}
+</ul>
+```
+
+훅은 컴포넌트의 최상단에서만 호출될 수 있기 때문이다. 따라서 `useRef`를 조건문이나 반복문 내부에서 호출할 수는 없다.
+
+이 문제를 해결하는 방법은 부모 요소에 ref를 지정하고 `querySelectorAll`과 같은 DOM 조작 메서드를 활용해 그 안에서 개별 자식 노드를 찾는 것이다.
+
+다른 해결책은 ref 콜백을 이용하는 것이다. `ref` 어트리뷰트에 함수를 전달해 React가 ref를 설정할 때 콜백 함수를 호출하도록 한다.
+
+```jsx
+<ul>
+  {catList.map((cat) => (
+    <li
+      key={cat}
+      ref={(node) => {
+        const map = getMap();
+        if (node) {
+          map.set(cat, node);
+        } else {
+          map.delete(cat);
+        }
+      }}
+    >
+      <img src={cat} />
+    </li>
+  ))}
+</ul>
+```
+
+```javascript
+function scrollToCat(cat) {
+  const map = getMap();
+  const node = map.get(cat);
+  node.scrollIntoView({
+    behavior: "smooth",
+    block: "nearest",
+    inline: "center",
+  });
+}
+
+function getMap() {
+  if (!itemsRef.current) {
+    // 처음 사용하는 경우, Map 초기화
+    itemsRef.current = new Map();
+  }
+  return itemsRef.current;
+}
+```
+
+이 경우 `itemsRef`는 하나의 DOM 노드를 가지는 것이 아니라 식별자와 노드를 Key와 Value로 가지는 Map을 갖는다.
+
+
+### 다른 컴포넌트의 DOM 노드에 접근하기
+`<input />`과 같은 브라우저 요소에 ref를 지정하면 React는 해당 DOM 노드를 `current`에 할당한다. 그러나 `<MyInput />`과 같이 사용자 정의 컴포넌트에 ref를 지정하면 `null`을 할당한다.
+
+```shell
+Warning: Function components cannot be given refs. Attempts to access this ref will fail. Did you mean to use React.forwardRef()?
+```
+
+React는 기본적으로 다른 컴포넌트의 DOM 노드에 접근하는 것을 허용하지 않는다. 하위 컴포넌트라고 해도 마찬가지다. 만약 다른 컴포넌트의 DOM 노드에 직접 접근해 조작하는 것이 가능하다면 해당 컴포넌트는 더이상 독립적으로 동작하지 않을 것이다.
+
+대신 `forwardRef` API를 사용해 부모 컴포넌트에서 자식 컴포넌트의 DOM 요소에 접근할 수 있다.
+
+```javascript
+const MyInput = forwardRef((props, ref) => {
+  return <input {...props} ref={ref} />;
+});
+```
+
+위 코드에서 `MyInput` 컴포넌트는 `forwardRef`를 통해 선언되었다. 이는 `props`에 이어 선언된 두 번째 인수인 `ref`를 통해 상위의 `inputRef`를 받을 수 있도록 한다. 이렇게 전달 받은 `ref`를 컴포넌트 내의 `<input />`으로 전달한다.
+
+따라서 `MyInput` 컴포넌트를 사용하는 부모 컴포넌트에서 생성한 ref는 자식 컴포넌트인 `MyInput`에 전달되고, 이를 통해 부모 컴포넌트에서 자식 컴포넌트의 `input` 요소에 직접적으로 접근할 수 있게 된다.
+
+자식 컴포넌트에게 ref를 전달받을지 여부를 결정하도록 한다.
+
+위의 예시에서 `MyInput` 컴포넌트를 `forwardRef`로 선언하는 시점에서 부모 컴포넌트는 자식 컴포넌트의 DOM 요소를 제어할 수 있는 권한을 갖는다. 이 경우 부모 컴포넌트는 어떤 작업이든 수행할 수 있다.
+
+어떤 작업이든 수행할 수 있다면 이로 인한 사이드 이펙트 역시 고려해야 한다. `useImperativeHandle`을 사용해 노출된 기능을 제어할 수 있다.
+
+```javascript
+const MyInput = forwardRef((props, ref) => {
+  const realInputRef = useRef(null);
+  useImperativeHandle(ref, () => ({
+    // focus만 노출
+    focus() {
+      realInputRef.current.focus();
+    },
+  }));
+  return <input {...props} ref={realInputRef} />;
+});
+```
+
+`MyInput` 컴포넌트 내부의 `realInputRef`는 실제 input DOM 노드를 가지고 있다. 그러나 `useImperativeHandle`은 부모 컴포넌트가 사용하는 ref에. 직접 구성한 객체를 전달하도록 한다. 따라서 `inputRef.current`는 `focus()` 메서드만 갖는다.
+
+React에서 발생하는 모든 업데이트는 두 단계로 나눌 수 있다.
+1. 렌더링 단계: React는 화면에 표시할 내용을 결정하기 위해 컴포넌트를 호출한다.
+2. 커밋 단계: React는 변경사항을 DOM에 적용한다.
+
+첫 렌더링 단계에서 DOM 노드는 아직 생성되지 않았으므로 `ref.current`는 `null`인 상태다. 렌더링 단계에서 DOM 노드는 아직 업데이트 되지 않은 상태다. DOM 노드가 업데이트 되는 시점은 커밋 단계다.
+
+따라서 React는 `ref.current`를 커밋 단계에서 설정한다. DOM을 변경하기 전에 React는 `ref.current` 값을 미리 `null`로 설정하고, DOM을 변경한 후 즉시 대응되는 DOM 노드로 재설정한다.
+
+대부분의 `ref` 접근은 이벤트 핸들러 안에서 일어난다. ref를 활용에 뭔가 하고 싶지만 이를 시행할 특정 이벤트가 없는 경우 Effect가 필요할 수도 있다.
+
+
+## Effect
+컴포넌트 내부의 로직은 2가지로 나눌 수 있다.
+- 렌더링 코드: 컴포넌트 최상단에 위치해 props와 state를 적절히 변형해 JSX를 반환한다. 순수해야 한고, 결과를 계산하는 것 외에는 아무것도 하지 않아야 한다.
+- 이벤트 핸들러: 단순히 계산을 하는 것이 아니라 어떤 동작을 하는 컴포넌트 내부의 중첩 함수다.
+
+그러나 이러한 유형의 로직으로 해결할 수 없는 문제가 있다. 예를 들어 `ChatRoom` 컴포넌트가 화면에 나타날 때마다 채팅 서버에 연결해야 하는 경우를 생각해볼 수 있다. 서버에 연결하는 것은 순수한 계산이 아니다. 따라서 렌더링 중에 이러한 작업을 수행할 수는 없다.
+
+> 서버와의 통신은 일반적으로 비동기적이고 외부 시스템과의 상호 작용이 필요하다. 네트워크 지연이나 서버 응답 시간과 같은 외부 요인에 영향을 받을 수 있다.
+
+이벤트 핸들러에서 이러한 작업을 수행할 수도 있을 것이다. 이를 위한 특정한 이벤트가 없다.
+
+Effect를 사용하면 특정 이벤트가 아니라 렌더링 자체에 의해 발생하는 부수적인 작업을 지정할 수 있다. 채팅 메세지를 보내는 것은 이벤트다. 사용자가 특정 버튼을 클릭함에 따라 발생한다. 반면 서버 연결 설정은 Effect다. 이것은 컴포넌트가 표시되면 발생해야 한다.
+
+Effect는 커밋이 끝난 후 화면 업데이트가 이루어지고 난 후 실행된다. 이 시점은 React 컴포넌트를 외부 시스템(네트워크 또는 서드파티 라이브러리)과 동기화 하기에 좋은 타이밍이다.
+
+Effect를 작성하기 위해서는 다음 세 단계를 따른다.
+
+1. Effect 선언: 기본적으로 Effect는 모든 렌더링 후에 실행된다.
+2. Effect 의존성 지정: 대부분의 Effect는 모든 렌더링 후가 아닌 필요한 시점에 실행되어야 한다. fade-in 애니메이션은 컴포넌트가 화면에 나타날 때만 실행되어야 하고, 채팅 서버에 연결하거나 연결을 해제하는 것은 컴포넌트가 나타나거나 사라질 때, 또는 채팅 방이 변경될 때만 발생해야 한다. 의존성을 지정해 이를 제어할 수 있다.
+3. 필요한 경우 clean-up 함수 지정: 일부 Effect는 수행 중이던 작업을 중지하거나 정리하는 방법을 지정해야 할 수도 있다. 예를 들어 ‘연결’은 ‘연결 해제’ 작업이 필요하고 ‘구독’은 ‘구독 취소’가 필요하다.
+
+### Effect 선언
+
+```javascript
+function MyComponent() {
+  useEffect(() => {
+    // 이곳의 코드는 모든 렌더링 후에 실행된다.
+  });
+  return <div />;
+}
+```
+
+컴포넌트가 렌더링 될 때마다 React는 화면을 업데이트 한 다음 `useEffect` 내부의 코드를 실행한다. 즉, `useEffect`는 화면에 **렌더링이 반영될 때까지 코드 실행을 지연**시킨다.
+
+`isPlaying` props를 전달 받아 비디오의 재생과 일시정지를 제어하는 컴포넌트가 있다.
+
+```javascript
+function VideoPlayer({ src, isPlaying }) {
+  // TODO: isPlaying을 활용하여 무언가 수행하기
+  return <video src={src} />;
+}
+```
+
+그러나 `<video>` 태그에는 `isPlaying` prop이 없다. 이를 제어하려면 DOM 요소에 접근해 수동으로 `play()`, 또는 `pause()` 메서드를 실행해야 한다.
+
+```javascript
+import { useState, useRef, useEffect } from 'react';
+
+function VideoPlayer({ src, isPlaying }) {
+  const ref = useRef(null);
+
+  if (isPlaying) {
+    ref.current.play();  // 렌더링 중에 이를 호출하는 것이 허용되지 않습니다.
+  } else {
+    ref.current.pause(); // 역시 이렇게 호출하면 바로 위의 호출과 충돌이 발생합니다.
+  }
+
+  return <video ref={ref} src={src} loop playsInline />;
+}
+
+export default function App() {
+  const [isPlaying, setIsPlaying] = useState(false);
+  return (
+    <>
+      <button onClick={() => setIsPlaying(!isPlaying)}>
+        {isPlaying ? '일시정지' : '재생'}
+      </button>
+      <VideoPlayer
+        isPlaying={isPlaying}
+        src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
+      />
+    </>
+  );
+}
+```
+
+이 코드가 올바르지 않은 이유는 렌더링 중에 DOM 노드를 조작하려고 시도하기 때문이다. React에서 렌더링은 순수한 연산 작업이어야 한다.
+
+또 처음으로 `VideoPlayer` 컴포넌트가 호출될 때 해당 DOM은 아직 존재하지 않는다. JSX가. 반환되기 전까지 어떤 DOM을 생성할 지 알 수 없으므로 `play()`, `pause()` 메서드를 호출할 DOM 노드가 없다.
+
+따라서 이러한 작업은 렌더링 연산 작업과 분리되어야 한다.
+
+```javascript
+import { useEffect, useRef } from 'react';
+
+function VideoPlayer({ src, isPlaying }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (isPlaying) {
+      ref.current.play();
+    } else {
+      ref.current.pause();
+    }
+  });
+
+  return <video ref={ref} src={src} loop playsInline />;
+}
+```
+
+`useEffect`로 감싼 작업은 React가 화면을 업데이트 하기 전까지 지연된다. 이 케이스에서 React 상태와 동기화 된 외부 시스템은 브라우저의 미디어 API다.
+
+### Effect 의존성 지정
+이와 같이 기본적으로 Effect는 모든 렌더링 작업이 끝난 후 실행된다. 다르게 말하면 모든 렌더링 작업이 끝난 후 마다 실행된다. 위의 `VideoPlayer` 컴포넌트는 리렌더링이 발생할 때마다 `useEffect`를 실행한다.
+
+```javascript
+useEffect(() => {
+  if (isPlaying) {
+    console.log('video.play() 호출');
+    ref.current.play();
+  } else {
+    console.log('video.pause() 호출');
+    ref.current.pause();
+  }
+}, [isPlaying]);
+```
+
+의존성 배열에는 여러 개의 종속성을 동시에 지정할 수 있다.  이 때, 의존성 배열에 포함된 모든 종속성 중 하나라도 이전 렌더링과 달라진다면 `useEffect`의 콜백 함수가 재실행된다.
+
+React는 `Object.is` 비교를 사용해 종속성 값을 비교한다.
+
+> `==` 연산자: 동등 연산자로 두 값의 유형이 다를 경우 자동으로 형변환을 수행하고 비교한다. 예를 들어 `”” == false`는 `true`를 반환한다.
+> `===` 연산자: 일치 연산자로 값 뿐만 아니라 값의 유형까지 비교한다. 자동으로 형변환을 수행하지 않는다.
+> `Object.is()` 메서드: 두 값을 비교하여 같은지 확인한다. 그러나 몇 가지 특별한 규칙을 갖는다. `-0`과 `+0`을 다르게 취급하고, `Nan`과 `Nan`을 같다고 판단한다. 이는 `===` 연산자와 다르게 동작한다.
+
+위 예제의 Effect는 `ref`와 `isPlaying`을 모두 사용한다. 하지만 의존성 배열에 명시된 종속성은 `isPlaying` 뿐이다. 이는 `ref` 객체가 stable identity를 갖기 때문이다. React는 동일한 `useRef` 호출에서 항상 같은 객체를 반환한다. 따라서 이 객체는 변경되지 않기 때문에 의존성 배열에 포함되든 포함되지 않든 상관이 없다.
+
+### Effect clean-up
+개발 모드에서는 초기 마운트 후 모든 컴포넌트를 다시 마운트한다. 이를 통해 clean-up이 필요한 케이스를 놓치지 않을 수 있다.
+
+
+## Data fetching
+Effect 내에서 `fetch` 호출을 할 수 있다. 특히 완전히 클라이언트 측 앱이라면 그렇다. 그러나 다음을 고려해야 한다.
+
+**Effect는 서버에서 실행되지 않는다.** 따라서 클라이언트의 컴퓨터는 모든 JavaScript를 다운로드 하고 앱을 랜더링한 이후에 데이터를 로드하게 된다. 이는 비효율적이다.
+
+**Network waterfalls를 발생시킬 수 있다.** 부모 컴포넌트를 렌더링하면 일부 데이터를 가져오고, 자식 컴포넌트를 렌더링 한 다음 데이터르 가져오기 시작한다. 네트워크가 충분히 빠르지 않다면 이는 모든 데이터를 병렬로 가져오는 것보다 훨씬 느리다.
+
+**Effect 안에서 데이터를 직접 가져오는 것은 데이터를 미리 로드하거나 캐시하지 않음을 의미한다.** 컴포넌트가 언마운트 되고 다시 마운트 되면 데이터를 다시 가져와야 한다.
+
+**Race condition과 같은 문제를 방지하기 위해 많은 보일리 플레이트 코드가 필요하다.** 두 개 이상의 비동기 작업이 동시에 진행되는 경우, 이러한. 호출 중 하나가 먼저 완료되어 상태를 변경하면 다른 호출에서 업데이트를 알 수 없다.
+
+
+## Effect 격리
+각각의 렌더링은 각각의 고유한 Effect를 갖는다.
+
+```javascript
+export default function ChatRoom({ roomId }) {
+  useEffect(() => {
+    const connection = createConnection(roomId);
+    connection.connect();
+    return () => connection.disconnect();
+  }, [roomId]);
+
+  return <h1>Welcome to {roomId}!</h1>;
+}
+```
+
+위의 `ChatRoom` 컴포넌트는 `roomId`의 값이 변경될 때 `useEffect`의 콜백을 실행하고, 컴포넌트가 언마운트 될 때 `connection.disconnet()` 함수를 실행한다.
+
+사용자가 `<ChatRoom roomId=“general” />`에 진입했을 때, 첫 번째 렌더링이 실행되고 그 결과로 다음 JSX가 화면에 표시된다.
+
+```javascript
+return <h1>Welcome to general!</h1>;
+```
+
+이 때 Effect 역시 렌더링 결과물의 일부다. 첫 번째 렌더링에 대한 Effect는 다음과 같다.
+
+```javascript
+// 첫 번째 렌더링에 대한 이펙트 (roomId = "general")
+() => {
+  const connection = createConnection('general');
+  connection.connect();
+  return () => connection.disconnect();
+},
+// 첫 번째 렌더링의 의존성 (roomId = "general")
+['general']
+```
+
+### 의존성이 같은 재렌더링
+만약 `<ChatRoom roomId=“general” />`이 다시 렌더링 된다고 가정하면 렌더링 결과물은 이전과 동일하다.
+
+```javascript
+return <h1>Welcome to general</h1>;
+```
+
+렌더링 결과가 이전 렌더링과 다르지 않기 때문에 React는 DOM을 업데이트 하지 않는다. 이번 렌더링에서의 Effect는 다음과 같다.
+
+```javascript
+// 두 번째 렌더링에 대한 Effect (roomId = "general")
+() => {
+  const connection = createConnection('general');
+  connection.connect();
+  return () => connection.disconnect();
+},
+// 두 번째 렌더링에 대한 의존성 (roomId = "general")
+['general']
+```
+
+React는 두 번째 렌더링에 대한 의존성인 `[‘general’]`을 이전 렌더링의 의존성인 `['general']`과 비교한다. 모든 의존성이 동일하므로 React는 두 번째 렌더링에서의 Effect를 무시한다.
+
+### 의존성이 다른 재렌더링
+사용자가 `<Chatroom roomId=“travle” />`을 탐색하는 경우 컴포넌트는 다른 JSX를 반환한다.
+
+```javascript
+return <h1>Welcome to travel!</h1>;
+```
+
+React는 DOM을 업데이트 한다. 세 번째 렌더링에서의 Effect는 다음과 같다.
+
+```javascript
+// 세 번째 렌더링에 대한 Effect (roomId = "travel")
+() => {
+  const connection = createConnection('travel');
+  connection.connect();
+  return () => connection.disconnect();
+},
+// 세 번째 렌더링에 대한 의존성 (roomId = "travel")
+['travel']
+```
+
+두 번째 렌더링의 의존성 `['general']`과 세 번째 렌더링의 의존성 `['travel']`은 다르다.  따라서 Effect를 무시하지 않고 실행해야 한다.
+
+React는 세. 번째 렌더링의 Effect를 실행하기 전에 먼저 실행된 Effect를 정리해야 한다. 두 번째 렌더링은 무시되었으므로 첫 번째 렌더링의 clean-up을 실행한다. 이후 세 번째 렌더링의 Effect를 실행한다.
+
+### 언마운트
+사용자가 다른 페이지로 이동하게 되면 `ChatRoom` 컴포넌트가 언마운트 된다. React는. 마지막 Effect의 clean-up 함수를 실행한다. 이는 세 번째 렌더링에서 온 것이다.
+
