@@ -22,7 +22,7 @@ const PostPageTemplate = ({ data, children }: PostPageProps) => {
         alignItems="center"
         marginBottom="3rem"
       >
-        <Heading as="h1" fontSize="1.2rem" fontWeight={900}>
+        <Heading as="h1" fontSize="1.2rem" fontWeight={900} textAlign="center">
           {post?.frontmatter.title}
         </Heading>
         <Flex direction="column" alignItems="center">
